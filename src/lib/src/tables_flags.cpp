@@ -1,9 +1,8 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: LicenseRef-Human-Origin-Source-1.0
 // Copyright (c) 2024-2026 Elias Bachaalany
 //
-// This Source Code Form is subject to the terms of the Mozilla Public
-// License, v. 2.0. If a copy of the MPL was not distributed with this
-// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// This file is licensed under the Human-Origin Source License v1.0.
+// See LICENSE.
 // flags — `fj` for read; `fr <old> <new>` for renames; `f- @ <addr>` for deletes.
 
 #include <r2sql/session.hpp>
@@ -60,6 +59,12 @@ void register_flags_table(Session& s) {
         }
         // Try function rename first (afn) — covers the common case where the
         // flag is a function symbol. If that's a no-op, plain `fr` works too.
+        // NOTE: per-command error-surfacing is intentionally NOT applied here:
+        // this is a deliberate try-both fallback where exactly one of afn/fr is
+        // expected to be a no-op (afn fails for a non-function flag; fr fails
+        // when afn already renamed it), so a single command's diagnostic is not
+        // a real failure. Only the single-command flag write paths (INSERT /
+        // DELETE) below surface r2 errors.
         std::string afn = std::string("afn ") + v + " @ " + json_utils::hex_addr(r.addr);
         (void)be->cmd(afn);
         std::string fr = std::string("fr ") + r.name + " " + v;
@@ -70,7 +75,12 @@ void register_flags_table(Session& s) {
     .column_text ("realname", [](const FlagRow& r) { return r.realname; })
     .column_text ("space",    [](const FlagRow& r) { return r.space; })
     .deletable([be = s.backend_ptr()](FlagRow& r) -> bool {
-      (void)be->cmd("f- @ " + json_utils::hex_addr(r.addr));
+      std::string out = be->cmd("f- @ " + json_utils::hex_addr(r.addr));
+      if (std::string e = table_utils::command_error_text(out); !e.empty()) {
+        xsql::set_vtab_error("flags: DELETE failed (addr=" +
+                             json_utils::hex_addr(r.addr) + "): " + e);
+        return false;
+      }
       return true;
     })
     .insertable([be = s.backend_ptr()](int argc, xsql::FunctionArg* argv) -> bool {
@@ -90,7 +100,11 @@ void register_flags_table(Session& s) {
             "flags: name must be [A-Za-z0-9._$] (no spaces or r2 metacharacters)");
         return false;
       }
-      (void)be->cmd(std::string("f ") + name + " @ " + json_utils::hex_addr(addr));
+      std::string out = be->cmd(std::string("f ") + name + " @ " + json_utils::hex_addr(addr));
+      if (std::string e = table_utils::command_error_text(out); !e.empty()) {
+        xsql::set_vtab_error(std::string("flags: INSERT failed (name=") + name + "): " + e);
+        return false;
+      }
       return true;
     })
     .build();

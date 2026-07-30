@@ -1,14 +1,14 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: LicenseRef-Human-Origin-Source-1.0
 // Copyright (c) 2024-2026 Elias Bachaalany
 //
-// This Source Code Form is subject to the terms of the Mozilla Public
-// License, v. 2.0. If a copy of the MPL was not distributed with this
-// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// This file is licensed under the Human-Origin Source License v1.0.
+// See LICENSE.
 
 #pragma once
 
 #include <r2sql/backend.hpp>
 
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -32,6 +32,11 @@ public:
   // Register canned responses for many commands at once.
   void set_responses(std::initializer_list<std::pair<std::string, std::string>> kvs);
 
+  // Register successive responses for an exact command. Each call consumes one
+  // response until the last, which is retained for subsequent calls.
+  void set_response_sequence(std::string command,
+                             std::vector<std::string> responses);
+
   // The list of commands the session has issued, in order.
   const std::vector<std::string>& issued_commands() const;
 
@@ -45,6 +50,7 @@ public:
 private:
   mutable std::mutex m_;
   std::unordered_map<std::string, std::string> canned_;
+  std::unordered_map<std::string, std::deque<std::string>> sequences_;
   std::vector<std::string> issued_;
 };
 

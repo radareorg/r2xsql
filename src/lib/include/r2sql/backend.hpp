@@ -1,9 +1,8 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: LicenseRef-Human-Origin-Source-1.0
 // Copyright (c) 2024-2026 Elias Bachaalany
 //
-// This Source Code Form is subject to the terms of the Mozilla Public
-// License, v. 2.0. If a copy of the MPL was not distributed with this
-// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// This file is licensed under the Human-Origin Source License v1.0.
+// See LICENSE.
 //
 // backend.hpp — abstract interface for talking to a radare2 session.
 //
@@ -64,6 +63,19 @@ struct LibrOpenOptions {
 // or if the open fails. *err is populated on failure.
 std::unique_ptr<Backend> open_libr(const LibrOpenOptions& opts, BackendError* err = nullptr);
 
+// Wrap an existing radare2 core (an `RCore*`, passed as `void*` so this public
+// header stays free of <r_core.h>) in a Backend WITHOUT taking ownership: the
+// returned Backend never frees the core. This is the in-process entry used by
+// the core_r2sql plugin to share the host's RCore. The caller retains ownership
+// and must keep the core alive for the Backend's lifetime. Returns nullptr in a
+// pipe-only build (R2SQL_HAVE_LIBR=0).
+//
+// (Declared with C++ linkage and resolved at link time by its sole caller — no
+// `extern "C"` is needed since both the definition and the caller are C++ TUs
+// in this project; using C linkage here would be the C4190 "C-incompatible
+// return type" warning, as `std::unique_ptr` is not a C type.)
+std::unique_ptr<Backend> make_libr_backend_from_core(void* core_ptr);
+
 struct R2PipeOpenOptions {
   std::string r2_executable;  // path to radare2(.exe); searched on PATH if empty
   std::string path;           // binary to open; if empty, opens with --
@@ -90,7 +102,7 @@ std::unique_ptr<Backend> open_r2pipe(const R2PipeOpenOptions& opts, BackendError
 // of "Cannot find ...sdb" errors).
 //
 // This probe reports the directory r2 will look in and whether it exists, so
-// callers (and tests) can detect the misdeployment. In a pipe-only build the
+// callers can detect the misdeployment. In a pipe-only build the
 // data dir is resolved by the spawned radare2.exe instead, so `found` is true
 // and `probe_path` is empty (not applicable).
 struct LibrDataDirStatus {

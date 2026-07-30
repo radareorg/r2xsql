@@ -1,9 +1,8 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: LicenseRef-Human-Origin-Source-1.0
 # Copyright (c) 2024-2026 Elias Bachaalany
 #
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# This file is licensed under the Human-Origin Source License v1.0.
+# See LICENSE.
 # libr2sql — static core library exposing radare2 state as SQLite virtual
 # tables. Backend-neutral: it carries the mock + r2pipe backends only and links
 # NO radare2, so a true pipe-only r2sql can link it without importing any
@@ -17,16 +16,27 @@ add_library(r2sql STATIC
   src/backend_mock.cpp
   src/backend_r2pipe.cpp
   src/json_utils.cpp
-  src/tables_welcome.cpp
+  src/tables_binary.cpp
   src/tables_funcs.cpp
+  src/tables_locals.cpp
   src/tables_blocks.cpp
+  src/tables_bytes.cpp
+  src/tables_cfg_edges.cpp
+  src/tables_switch_tables.cpp
+  src/tables_function_frames.cpp
+  src/tables_data_items.cpp
+  src/tables_byte_search.cpp
+  src/tables_graph_tables.cpp
   src/tables_instructions.cpp
+  src/tables_operands.cpp
+  src/tables_esil.cpp
   src/tables_xrefs.cpp
   src/tables_strings.cpp
   src/tables_imports.cpp
   src/tables_exports.cpp
   src/tables_sections.cpp
   src/tables_segments.cpp
+  src/tables_io_maps.cpp
   src/tables_flags.cpp
   src/tables_comments.cpp
   src/tables_bookmarks.cpp
@@ -35,6 +45,9 @@ add_library(r2sql STATIC
   src/tables_types.cpp
   src/tables_types_members.cpp
   src/tables_projects.cpp
+  src/tables_runtime_settings.cpp
+  src/tables_true_believers.cpp
+  src/true_believers.cpp   # vendored true_believers decoder
 )
 add_library(r2sql::r2sql ALIAS r2sql)
 

@@ -51,7 +51,15 @@ cache exists only for the duration of a single query. Consequences:
 | Table          | Filter that pushes down            | Becomes            |
 |----------------|------------------------------------|--------------------|
 | `blocks`       | `func_addr = X`                    | `afbj @ X`         |
+| `cfg_edges`    | `func_addr = X`                    | `afbj @ X`         |
+| `switch_tables`| `func_addr = X`                    | `afbj @ X`         |
+| `function_frames`| `func_addr = X`                  | `afij @ X`         |
+| `dominators`   | `func_addr = X`                    | `afbj @ X`         |
+| `post_dominators`| `func_addr = X`                  | `afbj @ X`         |
+| `loops`        | `func_addr = X`                    | `afbj @ X`         |
 | `instructions` | `func_addr = X`                    | `pdfj @ X`         |
+| `instruction_operands` | `addr = X` / `func_addr = X`   | `aoj @ X`          |
+| `bytes`        | `addr = X`                         | `p8 1 @ X`         |
 | `pseudocode`   | `func_addr = X`                    | `<decomp> @ X`     |
 | `xrefs`        | `to_addr = X`                      | `axtj @ X`         |
 | `xrefs`        | `from_addr = X`                    | `axfj @ X`         |
@@ -75,7 +83,7 @@ you analyze). Reusing a `--project` skips re-analysis entirely.
 Always know **what binary** you are looking at before reasoning about results:
 
 ```sql
-SELECT key, value FROM welcome ORDER BY key;
+SELECT key, value FROM binary ORDER BY key;
 ```
 
 ### Invocation modes
@@ -92,7 +100,7 @@ r2sql -s ./target.exe -i
 
 # HTTP server (query repeatedly with no per-query startup cost)
 r2sql -s ./target.exe --http 8080
-# then: curl -X POST http://127.0.0.1:8080/query --data "SELECT * FROM welcome"
+# then: curl -X POST http://127.0.0.1:8080/query --data "SELECT * FROM binary"
 
 # MCP server (for an MCP client / agent)
 r2sql -s ./target.exe --mcp 9876
@@ -111,7 +119,7 @@ r2sql -s ./target.exe --mcp 9876
 | `--project NAME`    | radare2 project name; reuses cached analysis, saves on exit if `-w` |
 | `--r2pipe`          | Force the r2pipe backend (spawn `radare2`) even in the full build |
 | `--r2-exe PATH`     | Path to the `radare2` executable for r2pipe (default: search PATH) |
-| `--http [port]`     | Start HTTP REST server (no port ⇒ random in **8100–8199**)       |
+| `--http [port]`     | Start HTTP REST server (no port ⇒ random in **8100–8999**)       |
 | `--mcp [port]`      | Start MCP SSE server (no port ⇒ random in **9000–9999**)         |
 | `--bind <addr>`     | Bind address for `--http` / `--mcp` (default `127.0.0.1`)        |
 | `--token <tok>`     | Require a Bearer token on HTTP endpoints                         |
@@ -180,24 +188,63 @@ with a `type`: `CALL` (call), `CODE` (jump/branch), `DATA` (read/write), or
 `STRING`. "Who calls X?" is `to_addr = X`; "what does X reference?" is
 `from_addr = X`.
 
-### Sections vs segments
+### Sections vs segments vs io_maps
 `sections` (`.text`, `.rdata`, `.data`, …) describe the file's logical layout;
-`segments` describe the loader's memory view. Both carry `addr`, `vsize`,
-`paddr`, `size`, `name`, `perm` (a permission string like `r-x`).
+`segments` describe the loader's memory view. Both carry `start_addr`,
+`end_addr`, `vsize`, `paddr`, `size`, `name`, `perm` (a permission string like
+`r-x`) — and both are read-only.
+`io_maps` is r2's **writable** memory map (radare2 IO maps): INSERT a region,
+DELETE it, query it. Use `io_maps` to add an SRAM region or rebase a raw image;
+`sections`/`segments` are the binary's static headers.
 
 ### Basic blocks
 Within a function, **basic blocks** (`blocks`) are straight-line code runs with
 a single entry and exit — the unit of control-flow analysis.
+
+### Control-flow edges
+`cfg_edges` is the intra-function control-flow graph: one row per edge between two
+basic blocks — `func_addr`, `from_addr`, `to_addr` (source/target block start
+addresses), and `edge_type` (`normal`, `true`, `false`). Always filter by
+`func_addr` (pushdown → `afbj @ X`). Branch points are blocks with >1 successor;
+find them with `SELECT from_addr, COUNT(*) FROM cfg_edges WHERE func_addr = X
+GROUP BY from_addr HAVING COUNT(*) > 1`.
+
+### Dominators / post-dominators / loops
+Canonical cross-tool CFG-graph tables (aligned with ghidrasql). Each maps a
+function's `afbj @ X` basic blocks onto opaque node ids and runs the generic
+`xsql::graph` module. Always filter by `func_addr` (pushdown → `afbj @ X`).
+
+| Table | Columns |
+|-------|---------|
+| `dominators` | `func_addr`, `node_addr`, `idom_addr` (NULL at entry), `depth`, `is_entry` |
+| `post_dominators` | `func_addr`, `node_addr`, `ipdom_addr` (NULL to exit), `depth`, `is_exit` |
+| `loops` | `func_addr`, `header_addr`, `latch_addr`, `start_addr`, `end_addr`, `depth`, `loop_kind`, `block_count` |
+
+`loops.depth` is loop-nesting depth (outermost = 1); a self-loop is a 1-block loop.
+
+```sql
+-- Loops of a function, deepest nesting first
+SELECT header_addr, block_count, depth FROM loops
+WHERE func_addr = 0x401000 ORDER BY depth DESC;
+```
+
+### Raw bytes
+`bytes` is the canonical byte surface: one row per mapped byte (`addr`, `value`
+0..255 or NULL, `is_initialized`). The mapped address space comes from live
+`omj`; `p8` supplies values and `iSj` identifies raw-backed section extents versus
+BSS tails. Uninitialized or unreadable bytes have `value IS NULL`.
+`WHERE addr = X` reads one mapped byte; an unmapped address returns no row.
 
 ### Decompilation
 With a decompiler plugin installed, `pseudocode` gives a C-like view of a
 function — far more readable than disassembly. It is runtime-gated (see
 *Decompiler Setup*) and must be filtered by `func_addr`.
 
-### Annotations: flags, comments, bookmarks
+### Annotations: flags, comments, bookmarks, locals
 Your analysis notes live in radare2 and round-trip through writable tables:
 `flags` (named addresses), `comments` (free text at an address), `bookmarks`
-(flags in a dedicated `bookmarks` space), plus function **renames** via `funcs`.
+(flags in a dedicated `bookmarks` space), function **renames** via `funcs`, and
+local-variable/argument **rename + retype** via `locals`.
 
 ### Projects
 A radare2 **project** is the persistence unit. Edits stay in memory until saved
@@ -212,27 +259,39 @@ are authoritative; full detail lives in the per-topic skills.
 
 ### Orientation
 
-#### `welcome` (read-only)
-Key/value binary metadata — one row per fact. Carries radare2's bin-info fields
-(`arch`, `bits`, `bintype`, `os`, `baddr`, `endian`, `compiler`, `lang`, …) plus
-r2sql identity/entry/count keys. Counts are JSON-array lengths, so they match the
-corresponding tables exactly.
+#### `binary` (read-only)
+Key/value binary metadata — `(key TEXT, value TEXT, type TEXT)`, one row per
+fact, `type ∈ {string, hex, bool, int}`; the shape and canonical key names are
+shared across the tool family, and the `summary` row is emitted first. Carries
+radare2's raw bin-info fields (`arch`, `bits`, `bintype`, `os`, `baddr`,
+`endian`, `compiler`, `lang`, …) plus r2sql identity/entry/count keys AND
+canonical family synonyms of the raw facts. Counts are JSON-array lengths, so
+they match the corresponding tables exactly.
 
-| Column  | Type | Notes                  |
-|---------|------|------------------------|
-| `key`   | TEXT | field name             |
-| `value` | TEXT | string representation  |
+| Column  | Type | Notes                                        |
+|---------|------|----------------------------------------------|
+| `key`   | TEXT | field name                                   |
+| `value` | TEXT | string representation                        |
+| `type`  | TEXT | value type tag: string / hex / bool / int    |
 
 Notable keys: `r2sql_version`, `file`, `entry`, `entry_name`, `func_count`,
 `string_count`, `import_count`, `section_count`, `segment_count`,
 `symbol_count`, `summary`.
 
+Canonical family keys (same names on idasql/bnsql/ghidrasql; values alias the
+raw radare2 facts): `tool_name` (`r2sql`), `tool_version`, `processor` (=arch),
+`filetype` (=bintype), `image_base` (=baddr, hex), `entry_point` (=entry),
+`is_64bit`, `endianness`, `filename` (=file), and `min_addr`/`max_addr` derived
+from the section/segment maps (omitted when unmapped). `bits` doubles as the
+canonical bits key. No `md5`/`sha256` (best-effort core; radare2 hashing is
+unreliable).
+
 ```sql
 -- everything at a glance
-SELECT key, value FROM welcome ORDER BY key;
+SELECT key, value FROM binary ORDER BY key;
 
 -- just format / arch / bits
-SELECT key, value FROM welcome
+SELECT key, value FROM binary
 WHERE key IN ('format','bintype','arch','bits','os','endian','class');
 ```
 
@@ -251,6 +310,12 @@ Source `aflj`. One row per analyzed function.
 | `cc`       | INT64 | cyclomatic complexity                       |
 | `type`     | TEXT  | `fcn` / `sym` / `loc`                        |
 | `calltype` | TEXT  | `cdecl` / `stdcall` / `fastcall` / …         |
+| `prototype`| TEXT  | C signature (**writable** ⇒ `afs` set-signature); read from `aflj` `signature` |
+
+`UPDATE funcs SET prototype = 'int parse(hdr_t *h, int len)' WHERE addr = …`
+applies a C function signature via `afs`. A trailing `;` is stripped (r2's
+command separator); an empty/NULL prototype is rejected (r2 has no
+clear-signature primitive — an empty `afs` mangles the name).
 
 ```sql
 -- 20 largest functions
@@ -263,6 +328,32 @@ SELECT printf('0x%x', addr) AS at, name FROM funcs WHERE name LIKE 'fcn.%';
 -- abnormally complex functions
 SELECT name, cc FROM funcs WHERE cc > 30 ORDER BY cc DESC;
 ```
+
+#### `locals` (writable)
+Source per-function `afvj @ <func_addr>`. One row per local variable/argument,
+keyed on `(func_addr, name)`. Both `name` and `type` are writable.
+
+| Column        | Type  | Notes                                          |
+|---------------|-------|------------------------------------------------|
+| `func_addr`   | INT64 | owning function's address                      |
+| `name`        | TEXT  | variable/argument name (**writable** ⇒ rename via `afvn`) |
+| `kind`        | TEXT  | `reg` / `arg` / `var`                           |
+| `storage`     | TEXT  | `reg` / `stack` (sp-relative) / `spv` (bp-relative) |
+| `storage_ref` | TEXT  | `rcx` for a register; `rsp+0x20` for a stack slot |
+| `type`        | TEXT  | variable type (**writable** ⇒ retype via `afvt`) |
+| `size`        | INT64 | `0` (afvj carries no size)                      |
+
+```sql
+-- list a function's locals and args
+SELECT name, kind, storage_ref, type FROM locals WHERE func_addr = 0x401000;
+
+-- rename a local, then give it a type (r2 takes a bare type — do NOT quote it)
+UPDATE locals SET name = 'key_len' WHERE func_addr = 0x401000 AND name = 'var_20h';
+UPDATE locals SET type = 'int'     WHERE func_addr = 0x401000 AND name = 'key_len';
+```
+
+Locals are analysis-derived — no INSERT/DELETE. r2 reflects a rename/retype
+immediately, so the next read returns the new value.
 
 #### `blocks` (read-only)
 Source per-function `afbj @ <addr>`. Filter by `func_addr`.
@@ -282,14 +373,18 @@ FROM blocks WHERE func_addr = 0x401000 ORDER BY addr;
 Source per-function `pdfj @ <addr>`. **Filter by `func_addr`** — an unfiltered
 scan disassembles every function.
 
-| Column      | Type  | Notes                                  |
-|-------------|-------|----------------------------------------|
-| `addr`      | INT64 | instruction address                    |
-| `size`      | INT64 | instruction length in bytes            |
-| `mnemonic`  | TEXT  | opcode (`call`, `mov`, `jmp`, …)       |
-| `disasm`    | TEXT  | full disassembled text                 |
-| `bytes`     | TEXT  | hex-encoded bytes (e.g. `4889e5`)      |
-| `func_addr` | INT64 | owning function                        |
+| Column         | Type  | Notes                                          |
+|----------------|-------|------------------------------------------------|
+| `addr`         | INT64 | instruction address                            |
+| `size`         | INT64 | instruction length in bytes                    |
+| `func_addr`    | INT64 | owning function                                |
+| `seq`          | INT64 | per-function ordinal (0-based, in `addr` order)|
+| `mnemonic`     | TEXT  | opcode (`call`, `mov`, `jmp`, …)               |
+| `disasm`       | TEXT  | full disassembled text                         |
+| `bytes`        | TEXT  | hex-encoded bytes (e.g. `4889e5`)              |
+| `esil`         | TEXT  | radare2's stack-based IL (same `pdfj` op; empty when r2 doesn't lift it) |
+| `op_type`      | TEXT  | radare2 semantic op type (`add`, `call`, `cjmp`, …) |
+| `canonical_op` | TEXT  | cross-tool canonical P-code-style op (`INT_ADD`, `CALL`, `CBRANCH`, …); empty when no clean canonical |
 
 ```sql
 -- disassemble one function
@@ -299,6 +394,68 @@ FROM instructions WHERE func_addr = 0x401000 ORDER BY addr;
 -- every call in a function
 SELECT printf('0x%x', addr) AS at, disasm
 FROM instructions WHERE func_addr = 0x401000 AND mnemonic = 'call';
+
+-- semantic op classification (radare2 + canonical)
+SELECT printf('0x%x', addr) AS at, op_type, canonical_op, esil
+FROM instructions WHERE func_addr = 0x401000 ORDER BY seq;
+```
+
+#### `instruction_operands` (read-only)
+One row per decoded instruction operand, from `aoj` (`opex.operands`). **Filter by
+`addr`** (one instruction → `aoj 1 @ X`) **or `func_addr`** (whole function →
+block-scoped `aoj` reads over the exact `afbj.instrs` addresses). Canonical
+cross-tool schema; the block walk preserves non-contiguous function bodies.
+
+| Column          | Type  | Notes                                            |
+|-----------------|-------|--------------------------------------------------|
+| `addr`          | INT64 | instruction address                              |
+| `func_addr`     | INT64 | owning function                                  |
+| `operand_index` | INT64 | 0-based operand position                         |
+| `text`          | TEXT  | rendered operand (`rax`, `0x10`, `[rbp - 0x4]`)  |
+| `type_name`     | TEXT  | `register` / `immediate` / `memory` / …          |
+| `value`         | INT64 | immediate value (0 when not an immediate)        |
+| `size`          | INT64 | operand size in bytes                            |
+
+```sql
+-- operands of one instruction
+SELECT operand_index, text, type_name, value
+FROM instruction_operands WHERE addr = 0x401000 ORDER BY operand_index;
+```
+
+#### `esil_ops` / `esil_operands` (read-only — the tokenized ESIL op stream)
+`esil_ops` runs radare2's **ESIL** (a postfix stack IL) through a tokenizer to rebuild a
+finer canonical op stream — **multiple ops per instruction** (e.g. `sub rsp, 0x40` yields
+`INT_SUB` + the flag arithmetic). Columns: `func_addr`, `seq` (per-function esil-op index),
+`addr` (source instruction), `op` (canonical), `native_op` (the ESIL operator token or the
+control-flow op type). Control flow (CALL/BRANCH/RETURN) is NOT an ESIL op — it is emitted
+from the instruction's semantic `op.type`, so the stream is complete. **Filter by `func_addr`.**
+
+`esil_operands` — the 5-kind value operands (one row per op input/output): `func_addr`,
+`op_seq` (joins `esil_ops.seq`), `operand_index`, `role` (`in`|`out`), `kind`
+(`reg`|`imm`|`mem`|`var`|`result`), `text` (the ESIL token). Structural control/stack-juggle
+tokens (`?{`, `}`, `GOTO`, `DUP`, …) are excluded — r2 is the **PARTIAL / lowest-fidelity** leg.
+
+#### `ir_ops` / `ir_v_*` / `ir_operands` / `ir_maturities` (read-only views — cross-tool low-IR)
+Canonical low-IR over **`esil_ops`** (a fidelity upgrade — the finer tokenized stream, not
+the coarse one-op-per-instruction path), sharing the same names/columns as the other family
+tools. r2 is the **lowest-fidelity leg** — **no SSA**, single rung. **Filter by `func_addr`.**
+
+`ir_ops` columns: `func_addr`, `seq`, `addr`, `op` (canonical), `native_op` (ESIL/type
+token), `is_ssa` (always `0`), `maturity` (always `esil`), `stage` (always `final`).
+The semantic views `ir_v_calls` / `ir_v_mem_writes` / `ir_v_mem_reads` / `ir_v_branches` /
+`ir_v_arith` each expose `func_addr`, `seq`, `addr`, `op`. **`ir_operands`** projects
+`esil_operands` (join `op_seq = ir_ops.seq`); **`ir_maturities`** advertises the single
+`esil` rung.
+
+```sql
+-- canonical low-IR op stream for a function (the tokenized ESIL ops)
+SELECT seq, printf('0x%x', addr) AS at, op, native_op
+FROM ir_ops WHERE func_addr = 0x401000 ORDER BY seq;
+
+-- each op with its operands
+SELECT o.seq, o.op, p.role, p.kind, p.text
+FROM ir_ops o JOIN ir_operands p ON p.func_addr = o.func_addr AND p.op_seq = o.seq
+WHERE o.func_addr = 0x401000 ORDER BY o.seq, p.operand_index;
 ```
 
 #### `sections` / `segments` (read-only)
@@ -306,7 +463,8 @@ Source `iSj` / `iSSj`.
 
 | Column  | Type  | Notes                          |
 |---------|-------|--------------------------------|
-| `addr`  | INT64 | virtual address                |
+| `start_addr` | INT64 | virtual address (canonical)    |
+| `end_addr`   | INT64 | `start_addr + vsize`        |
 | `vsize` | INT64 | virtual size                   |
 | `paddr` | INT64 | physical (file) offset         |
 | `size`  | INT64 | raw size                       |
@@ -315,8 +473,29 @@ Source `iSj` / `iSSj`.
 
 ```sql
 -- executable sections
-SELECT name, perm, vsize, printf('0x%x', addr) AS at
+SELECT name, perm, vsize, printf('0x%x', start_addr) AS at
 FROM sections WHERE perm LIKE '%x%';
+```
+
+#### `io_maps` (writable — r2's memory map)
+Source `omj`. radare2 IO maps: the live, editable address space (distinct from the
+read-only binary `sections`/`segments`). INSERT issues `om`, DELETE issues `om-<id>`.
+
+| Column  | Type  | Notes                          |
+|---------|-------|--------------------------------|
+| `start_addr` | INT64 | map virtual start (`from`)     |
+| `end_addr`   | INT64 | exclusive end (`to` + 1)       |
+| `perm`  | TEXT  | permission string (`rw-`, …)   |
+| `name`  | TEXT  | map name                       |
+| `paddr` | INT64 | physical offset (`delta`)      |
+| `map_id`| INT64 | radare2 map id (for DELETE)    |
+| `fd`    | INT64 | backing file descriptor        |
+
+```sql
+-- Add an SRAM region to a raw firmware image's memory map
+INSERT INTO io_maps(start_addr, end_addr, perm, name)
+  VALUES (0x20000000, 0x20002800, 'rw-', 'SRAM');
+DELETE FROM io_maps WHERE name = 'SRAM';
 ```
 
 ### Data
@@ -339,6 +518,29 @@ SELECT printf('0x%x', addr) AS at, text FROM strings WHERE text LIKE '%password%
 
 -- longest strings (often format strings / embedded blobs)
 SELECT length, type, text FROM strings ORDER BY length DESC LIMIT 20;
+```
+
+#### `data_items` (read-only)
+Defined data items, canonical cross-tool schema. The honest r2 maximum: strings
+(`izj`) UNION non-FUNC data symbols (`isj`), deduped by `addr`. On a stripped PE
+this is effectively the string set; on an ELF-with-symtab it also carries `OBJECT`
+globals — r2 has no rich typed-global model, so nothing is synthesized. Full-scan.
+
+| Column           | Type  | Notes                                                        |
+|------------------|-------|--------------------------------------------------------------|
+| `addr`           | INT64 | item address                                                 |
+| `name`           | TEXT  | data-symbol name, or NULL (strings have no `isj` name)       |
+| `data_type`      | TEXT  | symbol `type`, or `string` for strings; NULL if unknown      |
+| `size`           | INT64 | byte size                                                    |
+| `value_repr`     | TEXT  | string contents for strings, else NULL                       |
+| `segment_name`   | TEXT  | containing section when known                                |
+| `is_string`      | INT   | 1 when a string starts at `addr`                             |
+| `is_initialized` | INT   | 0 for a known BSS item, otherwise 1                          |
+
+```sql
+-- all defined data, strings first
+SELECT printf('0x%x', addr) AS at, data_type, size, value_repr
+FROM data_items ORDER BY is_string DESC, size DESC LIMIT 20;
 ```
 
 #### `imports` (read-only)
@@ -366,19 +568,21 @@ WHERE name LIKE 'Crypt%' OR name LIKE 'BCrypt%'
 `imports.addr` is the IAT slot, not the resolved external — pivot through
 `xrefs` to find code that calls through it.
 
-#### `exports` (read-only)
-Source `iEj`. Empty for non-DLL targets (check `welcome.bintype`).
+#### `entries` (read-only)
+Sources `iej` (program entry points) plus `iEj` (exports), deduplicated by address.
+Executables normally have at least their loader entry point even when they export
+no symbols.
 
 | Column | Type  | Notes               |
 |--------|-------|---------------------|
-| `addr` | INT64 | export address      |
+| `addr` | INT64 | entry/export address |
 | `size` | INT64 | size                |
 | `type` | TEXT  | symbol type         |
 | `bind` | TEXT  | binding             |
-| `name` | TEXT  | export name         |
+| `name` | TEXT  | entry/export name    |
 
 ```sql
-SELECT name, printf('0x%x', addr) AS at, type FROM exports ORDER BY name;
+SELECT name, printf('0x%x', addr) AS at, type FROM entries ORDER BY name;
 ```
 
 ### Relationships
@@ -413,7 +617,7 @@ more edges.
 ### Search
 
 #### `grep` (read-only)
-A composite over `funcs`, `flags`, `imports`, `exports`, `sections`,
+A composite over `funcs`, `flags`, `imports`, `entries`, `sections`,
 `comments` — search named entities of every kind in one query.
 
 | Column        | Type  | Notes                                            |
@@ -437,6 +641,31 @@ SELECT kind, name FROM grep WHERE pattern = 'fcn.%' AND kind = 'func';
 
 -- match counts by kind
 SELECT kind, COUNT(*) AS n FROM grep WHERE pattern = '%http%' GROUP BY kind;
+```
+
+#### `byte_search` (read-only)
+Canonical cross-tool byte-pattern search (matches idasql/bnsql/ghidrasql). Backed
+by r2's `/xj <hex>`. **Requires** `WHERE pattern = '<r2 hex pattern>'` — a bare scan
+errors (`matched_hex` is an output column, not the input). Optional bounds via the
+hidden `start_addr`/`end_addr`/`max_results` columns or an `addr` range predicate.
+
+| Column          | Type  | Notes                                              |
+|-----------------|-------|----------------------------------------------------|
+| `addr`          | INT64 | match address                                      |
+| `matched_hex`   | TEXT  | matched bytes, spaced lowercase (e.g. `48 89`)     |
+| `matched_bytes` | BLOB  | matched bytes                                      |
+| `size`          | INT   | match length                                       |
+| `pattern`       | TEXT  | *hidden input* — r2 `/x` hex (`4889`, wildcards ok)|
+| `start_addr`, `end_addr`, `max_results` | INT | *hidden inputs* — optional bounds / cap |
+
+```sql
+-- find a byte pattern, first 10 hits
+SELECT printf('0x%x', addr) AS at, matched_hex FROM byte_search
+WHERE pattern = '4889' AND max_results = 10;
+
+-- bounded to a range
+SELECT addr FROM byte_search
+WHERE pattern = 'cccc' AND start_addr = 0x401000 AND end_addr = 0x402000;
 ```
 
 ### Decompiler
@@ -583,17 +812,24 @@ table is an editable annotation. Each affected row issues one radare2 command.
 
 | Table       | INSERT             | UPDATE                       | DELETE        |
 |-------------|--------------------|------------------------------|---------------|
-| `funcs`     | `af @ <addr>` (+`afn`) | `name` ⇒ `afn <name> @ <addr>` (rename) | `af- <addr>` (undefine) |
+| `funcs`     | `af @ <addr>` (+`afn`) | `name` ⇒ `afn <name> @ <addr>` (rename); `prototype` ⇒ `afs <sig> @ <addr>` (set-signature) | `af- <addr>` (undefine) |
 | `flags`     | `f <name> @ <addr>`| `name` ⇒ `fr <old> <new>` / `afn` | `f- @ <addr>` |
 | `comments`  | `CCu base64:<b64> @ <addr>` | `text` ⇒ `CCu base64:<b64> @ <addr>` | `CC- @ <addr>` |
 | `bookmarks` | `f <name> @ <addr>` (bookmarks space) | `name` ⇒ `fr <old> <new>` | `f- @ <addr>` |
+| `locals`    | — | `name` ⇒ `afvn <new> <old>`; `type` ⇒ `afvt <name> <type>` | — |
 | `types`     | — (use `r2sql_type_define`) | —                  | `t- <name>`   |
 | `projects`  | — (use `r2sql_project_save`) | —                 | `P- <name>`   |
+| `io_maps`   | `om $d <vaddr> <size> <paddr> <perm> <name>` (add region) | — | `om-<map_id>` (remove map) |
+| `runtime_settings` | —          | `value` ⇒ UPDATE (validated) | —       |
 
-All other tables (`welcome`, `blocks`, `instructions`, `xrefs`, `strings`,
-`imports`, `exports`, `sections`, `segments`, `grep`, `pseudocode`,
-`types_members`) are **read-only** — they reflect the file/analysis, not
-user-editable state. Writes to them are rejected.
+All other tables and views (`binary`, `blocks`, `bytes`, `cfg_edges`,
+`switch_tables`, `function_frames`, `dominators`, `post_dominators`, `loops`,
+`data_items`, `byte_search`, `instructions`, `instruction_operands`, `esil_ops`,
+`esil_operands`, `ir_*`, `xrefs`, `strings`, `imports`, `entries`, `sections`,
+`segments`, `grep`, `pseudocode`, `types_members`) are **read-only** — they
+reflect file/analysis state, not user-editable rows. Writes to them are rejected.
+(`runtime_settings` above only accepts an `UPDATE value`; `timeout_push`/
+`timeout_pop` remain PRAGMA verbs.)
 
 Rules and gotchas:
 
@@ -649,6 +885,52 @@ r2sql --project demo -s ./malware.exe -q "
   SELECT name FROM funcs WHERE addr = 0x401000;
 "
 ```
+
+---
+
+## Runtime Settings (`runtime_settings` table + timeout PRAGMAs)
+
+Per-session runtime controls live in the **writable** `runtime_settings` table;
+read with `SELECT`, change with `UPDATE`. Settings are per-session: each open
+binary / server has its own state.
+
+#### `runtime_settings` (writable)
+One row per runtime setting, reflecting the **current** value.
+
+| Column  | Type | Notes                                             |
+|---------|------|---------------------------------------------------|
+| `key`   | TEXT | setting name                                      |
+| `value` | TEXT | live value (int as decimal, bool as `1`/`0`) — writable |
+| `type`  | TEXT | `int` or `bool`                                   |
+| `scope` | TEXT | `common` (a setting) or `action` (a PRAGMA verb)  |
+
+Keys: `query_timeout_ms` (int; per-query timeout ms, drives execution),
+`queue_admission_timeout_ms` (int), `max_queue` (int), `hints_enabled` (bool);
+`timeout_stack_depth` / `max_timeout_stack_depth` (int, read-only);
+`timeout_push` / `timeout_pop` (action verbs).
+
+```sql
+SELECT key, value, type, scope FROM runtime_settings;                    -- discover
+SELECT value FROM runtime_settings WHERE key='query_timeout_ms';
+UPDATE runtime_settings SET value='5000' WHERE key='query_timeout_ms';   -- 5s per-query timeout
+```
+
+Only the `value` column is writable, and only for value settings;
+`key`/`type`/`scope`, the read-only rows, and the action verbs reject writes;
+`INSERT`/`DELETE` are rejected.
+
+#### Timeout verbs (PRAGMA)
+The scoped-timeout stack is driven by the two imperative verbs — the only r2sql
+PRAGMAs. The stack is bounded at 64 entries.
+
+```sql
+PRAGMA r2sql.timeout_push = 30000;      -- scope a longer timeout for one heavy query
+-- ... run the heavy query ...
+PRAGMA r2sql.timeout_pop;               -- restore the prior timeout
+```
+
+The `timeout_push` stack is bounded (64 entries) so a client cannot grow it
+without limit.
 
 ---
 
@@ -791,7 +1073,7 @@ WHERE x.type = 'CALL';
 ## Workflows
 
 ### Triage pass
-1. **Orient** — `SELECT key, value FROM welcome` (format, arch, counts).
+1. **Orient** — `SELECT key, value FROM binary` (format, arch, counts).
 2. **Surface APIs** — crypto / network / anti-debug / persistence (above).
 3. **Find anchors** — notable `strings`.
 4. **Pivot** — `xrefs` from a string/import up to its callers.
@@ -862,7 +1144,7 @@ parsing, no pushdown. **You** parse the output.
 r2sql -s ./target.exe --http 8080
 r2sql -s ./target.exe --http --bind 0.0.0.0 --token s3cret   # bind everywhere + auth
 ```
-`--http` with no port picks a random port in **8100–8199**.
+`--http` with no port picks a random port in **8100–8999**.
 
 | Endpoint        | Method | Purpose                                                   |
 |-----------------|--------|-----------------------------------------------------------|
@@ -943,7 +1225,7 @@ project. Thunks/leaf/unanalyzable functions may decompile to a stub.
 
 ### "What does this binary do?"
 ```sql
-SELECT key, value FROM welcome WHERE key IN ('format','arch','bits','os','func_count','string_count','import_count');
+SELECT key, value FROM binary WHERE key IN ('format','arch','bits','os','func_count','string_count','import_count');
 SELECT libname, COUNT(*) AS n FROM imports GROUP BY libname ORDER BY n DESC LIMIT 10;
 SELECT name, cc FROM funcs ORDER BY cc DESC LIMIT 10;
 ```
@@ -976,14 +1258,15 @@ FROM xrefs x JOIN s ON x.to_addr = s.addr;
 
 | You want…                                  | Use                                            |
 |--------------------------------------------|------------------------------------------------|
-| Binary format / arch / quick counts        | `welcome`                                       |
+| Binary format / arch / quick counts        | `binary`                                        |
 | Function list / sizes / complexity         | `funcs`                                          |
 | Disassembly of a function                  | `instructions WHERE func_addr = X`              |
 | Basic-block layout                         | `blocks WHERE func_addr = X`                     |
 | Readable C-like view                       | `pseudocode WHERE func_addr = X` (decompiler)    |
 | Callers / callees / data refs              | `xrefs` (`to_addr`/`from_addr`)                  |
-| Strings / imports / exports                | `strings` / `imports` / `exports`                |
-| Memory layout                              | `sections` / `segments`                          |
+| Strings / imports / entry points / exports | `strings` / `imports` / `entries`                |
+| Bytes / defined data / byte patterns       | `bytes` / `data_items` / `byte_search`           |
+| Memory layout                              | `sections` / `segments` / `io_maps`              |
 | Find any named entity by pattern           | `grep WHERE pattern = '…'`                        |
 | Types / struct layout                      | `types` / `types_members`                        |
 | Rename / comment / flag / bookmark         | writable tables (`funcs`/`comments`/`flags`/`bookmarks`) |

@@ -79,6 +79,16 @@ program-analysis backends, all sharing the
 **Related:** agent skills for driving `r2sql` →
 [`r2sql-skills`](https://github.com/0xeb/r2sql-skills) (Claude Code / Codex).
 
-## License
+## License and Terms of Use
 
-[MPL-2.0](LICENSE).
+In short: you may read, build, evaluate, benchmark, package, and use unmodified r2sql, including commercially, if you preserve notices and follow the license terms. You may fork or patch it to prepare bug fixes, optimizations, features, tests, or documentation improvements for contribution back within the license's contribution-purpose rules.
+
+You may not maintain a divergent private fork, port, rebrand, clone, API-compatible replacement, competing implementation, or use r2sql as AI input to recreate or improve a derivative implementation without prior written permission from Elias Bachaalany. Independent implementations that are not copied from, materially derived from, or substantially informed by r2sql in the license's defined sense are not prohibited.
+
+Permission requests: open a GitHub issue at [0xeb/r2sql/issues](https://github.com/0xeb/r2sql/issues).
+
+If r2sql materially informs a distributed project, preserve the human origin: credit r2sql and Elias Bachaalany visibly in your README/docs and in About/credits UI when applicable. The license includes an examples/FAQ section for common allowed and permission-required uses. Third-party dependencies (libxsql, radare2 (libr / r2pipe), and their transitive dependencies) remain under their own licenses.
+
+See the full [Human-Origin Source License v1.0](LICENSE).
+
+Releases up to v0.0.1 remain under the MPL-2.0 they shipped with.

@@ -1,13 +1,13 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: LicenseRef-Human-Origin-Source-1.0
 // Copyright (c) 2024-2026 Elias Bachaalany
 //
-// This Source Code Form is subject to the terms of the Mozilla Public
-// License, v. 2.0. If a copy of the MPL was not distributed with this
-// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// This file is licensed under the Human-Origin Source License v1.0.
+// See LICENSE.
 
 #pragma once
 
 #include <r2sql/backend.hpp>
+#include <r2sql/runtime_settings.hpp>
 
 #include <xsql/database.hpp>
 #include <xsql/json.hpp>
@@ -37,6 +37,12 @@ public:
   Backend& backend() { return *backend_; }
   Backend* backend_ptr() { return backend_.get(); }
 
+  // Per-session runtime settings (query timeout, hints, timeout stack, ...),
+  // driven by the PRAGMA r2sql.* surface and surfaced read-only via the
+  // `runtime_settings` table. Reused by tables_runtime_settings.cpp.
+  RuntimeSettings& runtime_settings() { return runtime_settings_; }
+  const RuntimeSettings& runtime_settings() const { return runtime_settings_; }
+
   // Convenience: execute a SQL statement and return the result.
   // Thread-safe: serialized against other query()/raw_cmd() calls so a shared
   // Session can back an HTTP/MCP server with use_queue=false (concurrent
@@ -61,8 +67,17 @@ private:
   void register_all_tables_();
   void register_functions_();
   void detect_decompiler_();
+  // Intercept a `PRAGMA r2sql.*` statement and, if it matches, service it
+  // through the shared runtime-pragma dispatcher. Returns true (with `out`
+  // filled: a {name,value} row on success, or an error) iff the SQL was a
+  // r2sql runtime pragma; false lets the statement flow to SQLite unchanged.
+  bool handle_runtime_pragma_(const char* sql, xsql::Result& out);
 
   std::unique_ptr<Backend> backend_;
+  // Declared before db_ on purpose: db_ owns the cached `runtime_settings`
+  // table whose builder captures &runtime_settings(), so runtime_settings_
+  // must outlive db_ (members destruct in reverse declaration order).
+  RuntimeSettings runtime_settings_;
   xsql::Database db_;
   DecompilerKind decompiler_kind_ = DecompilerKind::None;
   std::string decompiler_cmd_;

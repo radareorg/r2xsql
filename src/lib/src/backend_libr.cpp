@@ -1,9 +1,8 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: LicenseRef-Human-Origin-Source-1.0
 // Copyright (c) 2024-2026 Elias Bachaalany
 //
-// This Source Code Form is subject to the terms of the Mozilla Public
-// License, v. 2.0. If a copy of the MPL was not distributed with this
-// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// This file is licensed under the Human-Origin Source License v1.0.
+// See LICENSE.
 // LibrBackend — in-process wrapper around r_core, compiled when
 // R2SQL_HAVE_LIBR is set. In a pipe-only build (no radare2 at configure time)
 // R2SQL_HAVE_LIBR is unset and open_libr() returns nullptr.
@@ -149,7 +148,9 @@ std::unique_ptr<Backend> open_libr(const LibrOpenOptions& opts, BackendError* er
 }
 
 // Used by the in-r2 plugin to wrap the host's RCore* without taking ownership.
-extern "C" std::unique_ptr<Backend> make_libr_backend_from_core(void* core_ptr) {
+// Declared in <r2sql/backend.hpp>; plain C++ linkage (see the note there on why
+// no extern "C").
+std::unique_ptr<Backend> make_libr_backend_from_core(void* core_ptr) {
   return std::unique_ptr<Backend>(new LibrBackend(static_cast<RCore*>(core_ptr), /*owns=*/false));
 }
 
@@ -163,6 +164,10 @@ std::unique_ptr<Backend> open_libr(const LibrOpenOptions&, BackendError* err) {
 // Pipe-only: the data dir is resolved by the spawned radare2.exe, not by this
 // process, so there is nothing to probe — report it as available (N/A).
 LibrDataDirStatus libr_data_dir_status() { return LibrDataDirStatus{}; }
+
+// Pipe-only stub so a consumer that references the symbol still links; there is
+// no in-process core to wrap without libr.
+std::unique_ptr<Backend> make_libr_backend_from_core(void*) { return nullptr; }
 
 #endif
 

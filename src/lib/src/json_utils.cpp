@@ -1,11 +1,11 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: LicenseRef-Human-Origin-Source-1.0
 // Copyright (c) 2024-2026 Elias Bachaalany
 //
-// This Source Code Form is subject to the terms of the Mozilla Public
-// License, v. 2.0. If a copy of the MPL was not distributed with this
-// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// This file is licensed under the Human-Origin Source License v1.0.
+// See LICENSE.
 #include "json_utils.hpp"
 
+#include <cctype>
 #include <cstdio>
 
 namespace r2sql::json_utils {
@@ -79,6 +79,95 @@ bool valid_flag_name(std::string_view name) {
     const bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
                     (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '$';
     if (!ok) return false;
+  }
+  return true;
+}
+
+bool valid_type_text(std::string_view type) {
+  if (type.empty()) return false;
+  for (unsigned char c : type) {
+    const bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                    (c >= '0' && c <= '9') || c == '_' || c == '.' ||
+                    c == '*' || c == ' ' || c == '[' || c == ']';
+    if (!ok) return false;
+  }
+  return true;
+}
+
+bool valid_c_declaration(std::string_view text) {
+  if (text.empty()) return false;
+  for (unsigned char c : text) {
+    if (std::isalnum(c)) continue;
+    switch (c) {
+      case ' ':
+      case '\t':
+      case '_':
+      case '.':
+      case '*':
+      case '&':
+      case '(':
+      case ')':
+      case '[':
+      case ']':
+      case '{':
+      case '}':
+      case ',':
+      case ';':
+      case ':':
+      case '=':
+      case '+':
+      case '-':
+        break;
+      default:
+        return false;
+    }
+  }
+  return true;
+}
+
+bool valid_c_signature(std::string_view text) {
+  if (text.empty()) return false;
+  int parens = 0;
+  int brackets = 0;
+  bool saw_function_paren = false;
+  for (unsigned char c : text) {
+    if (std::isalnum(c)) continue;
+    switch (c) {
+      case ' ':
+      case '\t':
+      case '_':
+      case '.':
+      case '*':
+      case ',':
+      case ':':
+      case '=':
+      case '+':
+      case '-':
+        break;
+      case '(':
+        ++parens;
+        saw_function_paren = true;
+        break;
+      case ')':
+        if (--parens < 0) return false;
+        break;
+      case '[':
+        ++brackets;
+        break;
+      case ']':
+        if (--brackets < 0) return false;
+        break;
+      default:
+        return false;
+    }
+  }
+  return saw_function_paren && parens == 0 && brackets == 0;
+}
+
+bool valid_perm(std::string_view perm) {
+  if (perm.empty()) return false;
+  for (unsigned char c : perm) {
+    if (c != 'r' && c != 'w' && c != 'x' && c != '-') return false;
   }
   return true;
 }

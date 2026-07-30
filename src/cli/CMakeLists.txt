@@ -1,9 +1,8 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: LicenseRef-Human-Origin-Source-1.0
 # Copyright (c) 2024-2026 Elias Bachaalany
 #
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# This file is licensed under the Human-Origin Source License v1.0.
+# See LICENSE.
 # r2sql command-line tool — two flavors from one main.cpp:
 #   * r2sql       (pipe-only) — ALWAYS built; links the backend-neutral core
 #                               only, no radare2. Spawns radare2 over a pipe.

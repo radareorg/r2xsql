@@ -1,9 +1,8 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: LicenseRef-Human-Origin-Source-1.0
 // Copyright (c) 2024-2026 Elias Bachaalany
 //
-// This Source Code Form is subject to the terms of the Mozilla Public
-// License, v. 2.0. If a copy of the MPL was not distributed with this
-// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// This file is licensed under the Human-Origin Source License v1.0.
+// See LICENSE.
 // instructions — per-function disassembly via `pdfj @ <addr>`. A `func_addr`
 // equality filter is pushed down: `WHERE func_addr = X` issues a single
 // `pdfj @ X` instead of enumerating every function. An unfiltered scan walks
@@ -32,7 +31,39 @@ struct InsnRow {
   std::string disasm;
   std::string bytes;
   int64_t     func_addr = 0;
+  std::string esil;        // radare2's stack IL for this instruction
+  int         seq = 0;         // per-function instruction index (cross-tool low-IR)
+  std::string op_type;         // radare2 semantic op type ("add", "call", "cjmp", ...)
+  std::string canonical_op;    // cross-tool canonical P-code-style op; "" if none
 };
+
+// radare2 op `type` string -> canonical P-code-style op (cross-tool low-IR).
+// r2 is the lowest-fidelity leg (disasm/ESIL, no SSA); "" for types with no clean
+// canonical (stack push/pop, cmp/test flag ops, nop, trap, ...).
+std::string r2_canonical_op(const std::string& t) {
+  if (t == "mov" || t == "lea" || t == "cast" || t == "movs") return "COPY";
+  if (t == "load") return "LOAD";
+  if (t == "store") return "STORE";
+  if (t == "add") return "INT_ADD";
+  if (t == "sub") return "INT_SUB";
+  if (t == "mul") return "INT_MULT";
+  if (t == "div") return "INT_DIV";
+  if (t == "mod") return "INT_REM";
+  if (t == "and") return "INT_AND";
+  if (t == "or")  return "INT_OR";
+  if (t == "xor") return "INT_XOR";
+  if (t == "shl") return "INT_LEFT";
+  if (t == "shr") return "INT_RIGHT";
+  if (t == "sar") return "INT_SRIGHT";
+  if (t == "not" || t == "cpl") return "INT_NEGATE";
+  if (t == "call" || t == "rcall" || t == "ccall") return "CALL";
+  if (t == "ucall" || t == "icall" || t == "ircall" || t == "uccall") return "CALLIND";
+  if (t == "jmp" || t == "rjmp") return "BRANCH";
+  if (t == "ujmp" || t == "ijmp" || t == "mjmp" || t == "irjmp") return "BRANCHIND";
+  if (t == "cjmp" || t == "mcjmp" || t == "rcjmp" || t == "ucjmp") return "CBRANCH";
+  if (t == "ret" || t == "cret") return "RETURN";
+  return "";
+}
 
 // One scoped `pdfj @ <fa>` call → the instructions of a single function.
 std::string mnemonic_from_op(const nlohmann::json& op) {
@@ -49,6 +80,7 @@ std::vector<InsnRow> insns_for_func(Backend* be, int64_t fa) {
   if (!pdf.is_object()) return out;
   auto ops = pdf.find("ops");
   if (ops == pdf.end() || !ops->is_array()) return out;
+  int seq = 0;
   for (auto& op : *ops) {
     InsnRow r;
     r.addr      = json_utils::i64_addr(op);
@@ -56,7 +88,11 @@ std::vector<InsnRow> insns_for_func(Backend* be, int64_t fa) {
     r.mnemonic  = mnemonic_from_op(op);
     r.disasm    = json_utils::str(op, "disasm");
     r.bytes     = json_utils::str(op, "bytes");
+    r.esil      = json_utils::str(op, "esil");
     r.func_addr = fa;
+    r.seq       = seq++;
+    r.op_type   = json_utils::str(op, "type");
+    r.canonical_op = r2_canonical_op(r.op_type);
     out.push_back(std::move(r));
   }
   return out;
@@ -103,6 +139,10 @@ class InsnsInFuncIterator : public xsql::RowIterator {
       case 3: ctx.result_text(r.disasm); break;
       case 4: ctx.result_text(r.bytes); break;
       case 5: ctx.result_int64(r.func_addr); break;
+      case 6: ctx.result_text(r.esil); break;
+      case 7: ctx.result_int(r.seq); break;
+      case 8: ctx.result_text(r.op_type); break;
+      case 9: ctx.result_text(r.canonical_op); break;
       default: ctx.result_null(); break;
     }
   }
@@ -122,12 +162,23 @@ void register_instructions_table(Session& s) {
     .column_text ("disasm",    [](const InsnRow& r) { return r.disasm; })
     .column_text ("bytes",     [](const InsnRow& r) { return r.bytes; })
     .column_int64("func_addr", [](const InsnRow& r) { return r.func_addr; })
+    // ESIL (radare2's stack IL), from the same pdfj op object — no extra r2 command.
+    .column_text ("esil",      [](const InsnRow& r) { return r.esil; })
+    // Cross-tool low-IR: per-function seq + radare2 semantic op type + canonical map.
+    .column_int  ("seq",          [](const InsnRow& r) { return r.seq; })
+    .column_text ("op_type",      [](const InsnRow& r) { return r.op_type; })
+    .column_text ("canonical_op", [](const InsnRow& r) { return r.canonical_op; })
     .filter_eq("func_addr",
       [be = s.backend_ptr()](int64_t fa) -> std::unique_ptr<xsql::RowIterator> {
         return std::make_unique<InsnsInFuncIterator>(be, fa);
       }, 5.0, 64.0)
     .build();
   s.db().register_and_create_generator_table(def);
+
+  // NOTE: the cross-tool low-IR views (ir_ops / ir_v_* / ir_operands / ir_maturities) now
+  // project from the FINER esil_ops / esil_operands stream (see tables_esil.cpp), not the
+  // coarse one-op.type-per-instruction path. The coarse op_type/canonical_op columns stay on
+  // `instructions` for cheap per-instruction classification.
 }
 
 }  // namespace r2sql

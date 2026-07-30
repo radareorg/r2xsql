@@ -1,9 +1,8 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: LicenseRef-Human-Origin-Source-1.0
 # Copyright (c) 2024-2026 Elias Bachaalany
 #
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# This file is licensed under the Human-Origin Source License v1.0.
+# See LICENSE.
 # r2sql — SQL interface for radare2.
 #
 # This CMakeLists is fully self-contained: it builds cleanly as a subdirectory
@@ -12,7 +11,7 @@
 # standard sibling-detect-or-fetch dance.
 
 cmake_minimum_required(VERSION 3.20)
-project(r2sql VERSION 0.0.1 LANGUAGES C CXX)
+project(r2sql VERSION 0.0.2 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -154,9 +153,11 @@ if(R2SQL_WITH_MCP)
     set(FASTMCPP_ENABLE_POST_STREAMING OFF CACHE BOOL "" FORCE)
     set(FASTMCPP_ENABLE_SAMPLING_HTTP_HANDLERS OFF CACHE BOOL "" FORCE)
     set(FASTMCPP_FETCH_CURL OFF CACHE BOOL "" FORCE)
+    # fastmcpp is a first-party dep we own — track main so r2sql builds against
+    # the latest (only third-party deps are pinned to a fixed tag).
     FetchContent_Declare(fastmcpp
       GIT_REPOSITORY https://github.com/0xeb/fastmcpp.git
-      GIT_TAG        4837e8e0a27d0011b73643fe02b3553cd3935c34)
+      GIT_TAG        main)
     FetchContent_MakeAvailable(fastmcpp)
   endif()
   if(MSVC AND TARGET fastmcpp_core)

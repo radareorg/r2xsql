@@ -1,9 +1,8 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: LicenseRef-Human-Origin-Source-1.0
 // Copyright (c) 2024-2026 Elias Bachaalany
 //
-// This Source Code Form is subject to the terms of the Mozilla Public
-// License, v. 2.0. If a copy of the MPL was not distributed with this
-// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// This file is licensed under the Human-Origin Source License v1.0.
+// See LICENSE.
 // types — radare2 type system catalog.
 //
 // Backed by:
@@ -25,6 +24,7 @@
 
 #include "tables.hpp"
 #include "json_utils.hpp"
+#include "table_utils.hpp"
 
 #include <algorithm>
 #include <string>
@@ -112,7 +112,10 @@ void register_types_table(Session& s) {
         xsql::set_vtab_error("types: refusing to delete an unsafe/empty type name");
         return false;
       }
-      (void)be->cmd("t- " + r.name);
+      if (std::string e = table_utils::command_error_text(be->cmd("t- " + r.name)); !e.empty()) {
+        xsql::set_vtab_error("types: DELETE failed (name=" + r.name + "): " + e);
+        return false;
+      }
       return true;
     })
     .build();

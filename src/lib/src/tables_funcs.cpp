@@ -1,15 +1,17 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: LicenseRef-Human-Origin-Source-1.0
 // Copyright (c) 2024-2026 Elias Bachaalany
 //
-// This Source Code Form is subject to the terms of the Mozilla Public
-// License, v. 2.0. If a copy of the MPL was not distributed with this
-// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// This file is licensed under the Human-Origin Source License v1.0.
+// See LICENSE.
 // funcs — function inventory via `aflj`. Each row is one analysed function;
 // the JSON is re-issued per query so the view is always live.
 
 #include <r2sql/session.hpp>
 #include <r2sql/backend.hpp>
 #include <xsql/vtable.hpp>
+
+#include <cctype>
+#include <string_view>
 
 #include "tables.hpp"
 #include "json_utils.hpp"
@@ -27,7 +29,36 @@ struct FuncRow {
   int64_t     cc = 0;
   std::string type;
   std::string calltype;
+  std::string prototype;
 };
+
+std::string compact_signature(std::string_view signature) {
+  while (!signature.empty() &&
+         (std::isspace(static_cast<unsigned char>(signature.back())) ||
+          signature.back() == ';')) {
+    signature.remove_suffix(1);
+  }
+  std::string compact;
+  compact.reserve(signature.size());
+  for (unsigned char c : signature) {
+    if (!std::isspace(c)) compact.push_back(static_cast<char>(c));
+  }
+  return compact;
+}
+
+bool signature_readback_matches(
+    Backend* be, int64_t addr, std::string_view expected) {
+  auto info = be->cmd_json("afij @ " + json_utils::hex_addr(addr));
+  const nlohmann::json* func = nullptr;
+  if (info.is_array() && !info.empty() && info[0].is_object()) {
+    func = &info[0];
+  } else if (info.is_object()) {
+    func = &info;
+  }
+  return func &&
+         compact_signature(json_utils::str(*func, "signature")) ==
+             compact_signature(expected);
+}
 }  // namespace
 
 void register_funcs_table(Session& s) {
@@ -50,6 +81,7 @@ void register_funcs_table(Session& s) {
         r.cc       = json_utils::i64(j, "cc");
         r.type     = json_utils::str(j, "type");
         r.calltype = json_utils::str(j, "calltype");
+        r.prototype = json_utils::str(j, "signature");
         rows.push_back(std::move(r));
       }
     })
@@ -66,7 +98,12 @@ void register_funcs_table(Session& s) {
               "funcs: name must be [A-Za-z0-9._$] (no spaces or r2 metacharacters)");
           return false;
         }
-        (void)be->cmd(std::string("afn ") + v + " @ " + json_utils::hex_addr(r.addr));
+        std::string out = be->cmd(std::string("afn ") + v + " @ " + json_utils::hex_addr(r.addr));
+        if (std::string e = table_utils::command_error_text(out); !e.empty()) {
+          xsql::set_vtab_error("funcs: rename failed (addr=" +
+                               json_utils::hex_addr(r.addr) + "): " + e);
+          return false;
+        }
         r.name = v;
         return true;
       })
@@ -76,22 +113,77 @@ void register_funcs_table(Session& s) {
     .column_int64("cc",    [](const FuncRow& r) { return r.cc; })
     .column_text ("type",  [](const FuncRow& r) { return r.type; })
     .column_text ("calltype", [](const FuncRow& r) { return r.calltype; })
+    // Writable: UPDATE funcs SET prototype='int f(int a)' WHERE addr=... applies a
+    // C function signature via `afs` (radare2 set-signature). READ comes from the
+    // `signature` field of `aflj` (free — no per-row command). Empty/NULL is
+    // rejected: r2 has no clear-signature primitive and an empty `afs` mangles the
+    // function name. A trailing `;` (afs echoes one) is stripped. `afs` does not
+    // accept whole-command quoting, so a strict signature grammar rejects every
+    // r2 command metacharacter before the command is issued.
+    .column_text_rw("prototype",
+      [](const FuncRow& r) { return r.prototype; },
+      [be = s.backend_ptr()](FuncRow& r, const char* v) -> bool {
+        std::string sig = v ? v : "";
+        while (!sig.empty() && (sig.back() == ';' || sig.back() == ' ' ||
+                                sig.back() == '\t' || sig.back() == '\n' ||
+                                sig.back() == '\r'))
+          sig.pop_back();
+        if (sig.empty()) {
+          xsql::set_vtab_error(
+              "funcs: prototype must be a non-empty C signature "
+              "(r2 has no clear-signature primitive)");
+          return false;
+        }
+        if (!json_utils::valid_c_signature(sig)) {
+          xsql::set_vtab_error(
+              "funcs: prototype must be a one-line C signature without "
+              "r2 command metacharacters");
+          return false;
+        }
+        if (compact_signature(r.prototype) == compact_signature(sig)) {
+          return true;  // no-op replay (rename-only update)
+        }
+        const std::string command =
+            std::string("afs ") + sig + " @ " + json_utils::hex_addr(r.addr);
+        std::string out = be->cmd(command);
+        if (std::string e = table_utils::command_error_text(out); !e.empty()) {
+          xsql::set_vtab_error("funcs: set prototype failed (addr=" +
+                               json_utils::hex_addr(r.addr) + "): " + e);
+          return false;
+        }
+        if (!signature_readback_matches(be, r.addr, sig)) {
+          xsql::set_vtab_error("funcs: prototype was not reflected by afij "
+                               "(addr=" + json_utils::hex_addr(r.addr) + ")");
+          return false;
+        }
+        r.prototype = sig;
+        return true;
+      })
     .deletable([be = s.backend_ptr()](FuncRow& r) -> bool {
       // Remove the function definition at this address (analysis only).
-      (void)be->cmd("af- " + json_utils::hex_addr(r.addr));
+      std::string out = be->cmd("af- " + json_utils::hex_addr(r.addr));
+      if (std::string e = table_utils::command_error_text(out); !e.empty()) {
+        xsql::set_vtab_error("funcs: DELETE failed (addr=" +
+                             json_utils::hex_addr(r.addr) + "): " + e);
+        return false;
+      }
       return true;
     })
     .insertable([be = s.backend_ptr()](int argc, xsql::FunctionArg* argv) -> bool {
       // columns: addr(0), name(1), size(2), nbbs(3), edges(4), cc(5),
-      // type(6), calltype(7). Defines a function at addr (`af`), optionally
-      // naming it (`afn`).
+      // type(6), calltype(7), prototype(8). Defines a function at addr (`af`),
+      // optionally naming it (`afn`); prototype is set separately via UPDATE (`afs`).
       if (argc < 1 || argv[0].is_null()) {
         xsql::set_vtab_error("funcs: INSERT requires addr");
         return false;
       }
       const int64_t addr = argv[0].as_int64();
       const std::string at = json_utils::hex_addr(addr);
-      (void)be->cmd("af @ " + at);
+      if (std::string e = table_utils::command_error_text(be->cmd("af @ " + at)); !e.empty()) {
+        xsql::set_vtab_error("funcs: INSERT failed to define a function at " + at + ": " + e);
+        return false;
+      }
+      // Optional best-effort naming; a failed afn does not undo the af above.
       if (argc > 1 && !argv[1].is_null()) {
         const char* name = argv[1].as_c_str();
         if (name && *name && json_utils::valid_flag_name(name)) {

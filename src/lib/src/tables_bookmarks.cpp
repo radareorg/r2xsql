@@ -1,9 +1,8 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: LicenseRef-Human-Origin-Source-1.0
 // Copyright (c) 2024-2026 Elias Bachaalany
 //
-// This Source Code Form is subject to the terms of the Mozilla Public
-// License, v. 2.0. If a copy of the MPL was not distributed with this
-// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// This file is licensed under the Human-Origin Source License v1.0.
+// See LICENSE.
 // bookmarks — backed by the `bookmarks` flag space. Each row is one flag
 // inside that space. Writable: UPDATE name → `fr`; DELETE → `f- @ addr`;
 // INSERT (addr, name) → `f <name> @ <addr>`. Every write is scoped to the
@@ -18,6 +17,7 @@
 
 #include "tables.hpp"
 #include "json_utils.hpp"
+#include "table_utils.hpp"
 
 namespace r2sql {
 
@@ -27,6 +27,35 @@ struct BookmarkRow {
   int64_t     addr = 0;
   std::string name;
 };
+
+class BookmarkSpaceScope {
+public:
+  explicit BookmarkSpaceScope(Backend& backend) : backend_(backend) {
+    (void)backend_.cmd("fs+bookmarks");
+  }
+
+  ~BookmarkSpaceScope() {
+    (void)backend_.cmd("fs-");
+  }
+
+  BookmarkSpaceScope(const BookmarkSpaceScope&) = delete;
+  BookmarkSpaceScope& operator=(const BookmarkSpaceScope&) = delete;
+
+private:
+  Backend& backend_;
+};
+
+bool has_bookmark(const nlohmann::json& arr, int64_t addr,
+                  std::string_view name) {
+  if (!arr.is_array()) return false;
+  for (const auto& item : arr) {
+    if (json_utils::i64_addr(item) == addr &&
+        json_utils::str(item, "name") == name) {
+      return true;
+    }
+  }
+  return false;
+}
 }  // namespace
 
 void register_bookmarks_table(Session& s) {
@@ -34,11 +63,8 @@ void register_bookmarks_table(Session& s) {
     .no_shared_cache()
     .estimate_rows([]() -> size_t { return 128; })
     .cache_builder([be = s.backend_ptr()](std::vector<BookmarkRow>& rows) {
-      // Save current flagspace, switch to bookmarks, list, restore.
-      (void)be->cmd("fss*");          // save flagspace stack
-      (void)be->cmd("fs bookmarks");  // select the bookmarks space
+      BookmarkSpaceScope scope(*be);
       auto arr = be->cmd_json("fj");
-      (void)be->cmd("fsr-");          // restore flagspace stack
       if (!arr.is_array()) return;
       int64_t id = 0;
       for (auto& j : arr) {
@@ -60,18 +86,36 @@ void register_bookmarks_table(Session& s) {
               "bookmarks: name must be [A-Za-z0-9._$] (no spaces or r2 metacharacters)");
           return false;
         }
-        (void)be->cmd("fss*");
-        (void)be->cmd("fs bookmarks");
-        (void)be->cmd("fr " + r.name + " " + v);
-        (void)be->cmd("fsr-");
+        if (r.name == v) return true;
+        BookmarkSpaceScope scope(*be);
+        const std::string out = be->cmd("fr " + r.name + " " + v);
+        if (std::string e = table_utils::command_error_text(out); !e.empty()) {
+          xsql::set_vtab_error("bookmarks: rename failed: " + e);
+          return false;
+        }
+        if (!has_bookmark(
+                be->cmd_json("fj @ " + json_utils::hex_addr(r.addr)),
+                r.addr, v)) {
+          xsql::set_vtab_error("bookmarks: rename was not applied");
+          return false;
+        }
         r.name = v;
         return true;
       })
     .deletable([be = s.backend_ptr()](BookmarkRow& r) -> bool {
-      (void)be->cmd("fss*");
-      (void)be->cmd("fs bookmarks");
-      (void)be->cmd("f- @ " + json_utils::hex_addr(r.addr));
-      (void)be->cmd("fsr-");
+      BookmarkSpaceScope scope(*be);
+      const std::string out =
+          be->cmd("f- @ " + json_utils::hex_addr(r.addr));
+      if (std::string e = table_utils::command_error_text(out); !e.empty()) {
+        xsql::set_vtab_error("bookmarks: delete failed: " + e);
+        return false;
+      }
+      if (has_bookmark(
+              be->cmd_json("fj @ " + json_utils::hex_addr(r.addr)),
+              r.addr, r.name)) {
+        xsql::set_vtab_error("bookmarks: delete was not applied");
+        return false;
+      }
       return true;
     })
     .insertable([be = s.backend_ptr()](int argc, xsql::FunctionArg* argv) -> bool {
@@ -91,10 +135,20 @@ void register_bookmarks_table(Session& s) {
             "bookmarks: name must be [A-Za-z0-9._$] (no spaces or r2 metacharacters)");
         return false;
       }
-      (void)be->cmd("fss*");
-      (void)be->cmd("fs bookmarks");
-      (void)be->cmd(std::string("f ") + name + " @ " + json_utils::hex_addr(addr));
-      (void)be->cmd("fsr-");
+      BookmarkSpaceScope scope(*be);
+      const std::string out =
+          be->cmd(std::string("f ") + name + " @ " +
+                  json_utils::hex_addr(addr));
+      if (std::string e = table_utils::command_error_text(out); !e.empty()) {
+        xsql::set_vtab_error("bookmarks: insert failed: " + e);
+        return false;
+      }
+      if (!has_bookmark(be->cmd_json(
+                            "fj @ " + json_utils::hex_addr(addr)),
+                        addr, name)) {
+        xsql::set_vtab_error("bookmarks: insert was not applied");
+        return false;
+      }
       return true;
     })
     .build();

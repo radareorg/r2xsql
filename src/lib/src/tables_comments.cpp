@@ -1,9 +1,8 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: LicenseRef-Human-Origin-Source-1.0
 // Copyright (c) 2024-2026 Elias Bachaalany
 //
-// This Source Code Form is subject to the terms of the Mozilla Public
-// License, v. 2.0. If a copy of the MPL was not distributed with this
-// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// This file is licensed under the Human-Origin Source License v1.0.
+// See LICENSE.
 // comments — `CCj` for read; `CCu <text> @ <addr>` for UPDATE; `CC- @ <addr>`
 // for DELETE. Writes go through Backend so any backend (libr/r2pipe) works.
 
@@ -13,6 +12,7 @@
 
 #include "tables.hpp"
 #include "json_utils.hpp"
+#include "table_utils.hpp"
 
 namespace r2sql {
 
@@ -60,13 +60,19 @@ void register_comments_table(Session& s) {
         // and `@` can't corrupt the comment or inject extra r2 commands.
         std::string cmd = "CCu base64:" + json_utils::base64_encode(v ? v : "") +
                           " @ " + json_utils::hex_addr(r.addr);
-        (void)be->cmd(cmd);
+        if (std::string e = table_utils::command_error_text(be->cmd(cmd)); !e.empty()) {
+          xsql::set_vtab_error("comments: UPDATE failed: " + e);
+          return false;
+        }
         if (v) r.text = v;
         return true;
       })
     .deletable([be = s.backend_ptr()](CommentRow& r) -> bool {
       std::string cmd = "CC- @ " + json_utils::hex_addr(r.addr);
-      (void)be->cmd(cmd);
+      if (std::string e = table_utils::command_error_text(be->cmd(cmd)); !e.empty()) {
+        xsql::set_vtab_error("comments: DELETE failed: " + e);
+        return false;
+      }
       return true;
     })
     .insertable([be = s.backend_ptr()](int argc, xsql::FunctionArg* argv) -> bool {
@@ -79,7 +85,10 @@ void register_comments_table(Session& s) {
       const char* text = argv[2].as_c_str();
       std::string cmd = "CCu base64:" + json_utils::base64_encode(text ? text : "") +
                         " @ " + json_utils::hex_addr(addr);
-      (void)be->cmd(cmd);
+      if (std::string e = table_utils::command_error_text(be->cmd(cmd)); !e.empty()) {
+        xsql::set_vtab_error("comments: INSERT failed: " + e);
+        return false;
+      }
       return true;
     })
     .build();

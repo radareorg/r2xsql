@@ -1,9 +1,8 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: LicenseRef-Human-Origin-Source-1.0
 // Copyright (c) 2024-2026 Elias Bachaalany
 //
-// This Source Code Form is subject to the terms of the Mozilla Public
-// License, v. 2.0. If a copy of the MPL was not distributed with this
-// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// This file is licensed under the Human-Origin Source License v1.0.
+// See LICENSE.
 
 #pragma once
 
@@ -39,6 +38,31 @@ std::string r2_quote(std::string_view s);
 // separators (`;`, `@`, `|`, backtick, …) from breaking parsing or injecting
 // extra r2 commands. Use to gate INSERT/UPDATE on the flags/bookmarks tables.
 bool valid_flag_name(std::string_view name);
+
+// True iff `type` is a safe C type string to splice into an r2 `afvt` command
+// unquoted: a non-empty string of type-syntax characters only —
+// [A-Za-z0-9_.* space []] . r2's `afvt <name> <type>` takes the type verbatim
+// (and stores literal quotes if you wrap it), so spaces and `*`/`[]` for
+// pointer/array types are allowed, but every r2 command metacharacter
+// (`@ ; | & < > $ " ' backtick newline` ...) is rejected so a type value can't
+// split into extra `afvt` args or inject r2 commands. Use to gate UPDATE ...
+// SET type on the locals table.
+bool valid_type_text(std::string_view type);
+
+// True iff `text` is a one-line C declaration that can be placed inside a
+// fully r2-quoted `td` command.
+bool valid_c_declaration(std::string_view text);
+
+// True iff `text` is a balanced C function signature safe to pass unquoted to
+// `afs`. Unlike `valid_c_declaration`, this rejects every r2 command separator,
+// including semicolons and ampersands.
+bool valid_c_signature(std::string_view text);
+
+// True iff `perm` is a safe radare2 IO-map permission spec: a non-empty string
+// of [rwx-] only (e.g. "rwx", "r-x", "rw-"). Rejecting anything else prevents a
+// perm value with spaces/metacharacters from splitting into extra `om` args or
+// injecting r2 commands when spliced into `om $d <vaddr> <size> <paddr> <perm>`.
+bool valid_perm(std::string_view perm);
 
 // Hex address formatter ("0x401000").
 std::string hex_addr(int64_t addr);

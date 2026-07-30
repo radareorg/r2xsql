@@ -1,9 +1,8 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: LicenseRef-Human-Origin-Source-1.0
 // Copyright (c) 2024-2026 Elias Bachaalany
 //
-// This Source Code Form is subject to the terms of the Mozilla Public
-// License, v. 2.0. If a copy of the MPL was not distributed with this
-// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// This file is licensed under the Human-Origin Source License v1.0.
+// See LICENSE.
 // r2sql CLI — flag surface:
 //   -s <file>       open binary or r2 project
 //   -q "<sql>"      run a single SQL statement (multiple via ;)
@@ -13,7 +12,7 @@
 //   --r2pipe        force the r2pipe backend (default: libr if available)
 //   --r2-exe <path> path to radare2 executable for r2pipe (default: PATH)
 //   --no-analyze    skip the implicit `aaa` at startup
-//   --http [port]   start HTTP REST server (default port: 0 = random 8100-8199)
+//   --http [port]   start HTTP REST server (default port: 0 = random 8100-8999)
 //   --mcp  [port]   start MCP SSE server   (default port: 0 = random 9000-9999)
 //   --bind <addr>   bind address for HTTP/MCP server (default: 127.0.0.1)
 //   --token <tok>   require Bearer token on HTTP endpoints
@@ -26,6 +25,7 @@
 
 #include <xsql/database.hpp>
 #include <xsql/json.hpp>
+#include <xsql/query_script.hpp>
 #include <xsql/thinclient/http_query_server.hpp>
 
 #if R2SQL_HAS_MCP
@@ -76,10 +76,11 @@ struct Args {
 void print_help() {
   std::printf(
 #if R2SQL_HAVE_LIBR
-    "r2sql-full %s — SQL interface for radare2 (embedded radare2 / libr)\n\n"
+    "r2sql-full %s — SQL interface for radare2 (embedded radare2 / libr)\n"
 #else
-    "r2sql %s — SQL interface for radare2 (pipe-only)\n\n"
+    "r2sql %s — SQL interface for radare2 (pipe-only)\n"
 #endif
+    R2SQL_COPYRIGHT_STRING "\n\n"
     "Usage: r2sql [options]\n"
     "  -s <file>          open the given binary or r2 project\n"
     "  -q \"<sql>\"         run a single SQL statement (\".<cmd>\" runs a raw r2 command)\n"
@@ -90,7 +91,7 @@ void print_help() {
     "      --project NAME r2 project name (reuses cached analysis; saves on exit if -w)\n"
     "      --r2pipe       use the r2pipe backend (spawn radare2)\n"
     "      --r2-exe PATH  path to radare2 executable for r2pipe\n"
-    "      --http [port]  start HTTP REST server (default: random 8100-8199)\n"
+    "      --http [port]  start HTTP REST server (default: random 8100-8999)\n"
     "      --mcp  [port]  start MCP SSE server   (default: random 9000-9999)\n"
     "      --bind <addr>  bind address for --http / --mcp (default: 127.0.0.1)\n"
     "      --token <tok>  require Bearer token on HTTP endpoints\n"
@@ -240,6 +241,7 @@ int run_script(r2sql::Session& s, const std::string& path) {
 
 int run_repl(r2sql::Session& s) {
   std::printf("r2sql %s — interactive REPL. Type .quit to exit.\n"
+              R2SQL_COPYRIGHT_STRING "\n"
               "Lines starting with '.' run a raw r2 command (e.g. .pdf @ entry0).\n",
               r2sql::version());
   std::string line;
@@ -264,25 +266,21 @@ static std::atomic<bool> g_shutdown_flag{false};
 
 extern "C" void on_signal(int /*sig*/) { g_shutdown_flag.store(true); }
 
-// Format an xsql::Result as the single-statement query envelope.
-static xsql::json result_to_json(const xsql::Result& r) {
-  if (!r.ok()) {
-    return xsql::json{{"success", false}, {"error", r.error}};
-  }
-  xsql::json cols = xsql::json::array();
-  for (const auto& c : r.columns) cols.push_back(c);
-  xsql::json rows = xsql::json::array();
-  for (const auto& row : r) {
-    xsql::json jrow = xsql::json::array();
-    for (size_t i = 0; i < row.size(); ++i) jrow.push_back(row[i]);
-    rows.push_back(std::move(jrow));
-  }
-  return xsql::json{
-      {"success", true},
-      {"columns", std::move(cols)},
-      {"rows", std::move(rows)},
-      {"row_count", static_cast<int64_t>(r.rows.size())},
+// Run a SQL query/script and serialize the canonical run_script envelope
+// (`{success, statement_count, results:[{columns,rows,...}]}`), matching the
+// rest of the xsql family (idasql/bnsql/ghidrasql). Going through run_script
+// gives multi-statement support and lets the thinclient's ?format=text|csv|tsv
+// re-render the result (it parses this envelope back via json_to_script_result).
+static std::string query_to_envelope(r2sql::Session& s, const std::string& body) {
+  auto exec = [&s](const std::string& sql, xsql::ScriptStatementResult& out) {
+    auto r = s.query(sql);
+    out.success = r.ok();
+    out.error = r.error;
+    out.columns = r.columns;
+    out.rows.reserve(r.rows.size());
+    for (const auto& row : r.rows) out.rows.push_back(row.values);
   };
+  return xsql::script_result_to_json(xsql::run_script(body, {}, std::ref(exec)));
 }
 
 static std::string build_help_text() {
@@ -301,7 +299,7 @@ static std::string build_help_text() {
       << "  SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;\n"
       << "  PRAGMA table_info(funcs);\n\n"
       << "Starter Query:\n"
-      << "  SELECT * FROM welcome;\n\n"
+      << "  SELECT * FROM binary;\n\n"
       << "Response Format:\n"
       << "  Success: {\"success\": true, \"columns\": [...], \"rows\": [[...]], \"row_count\": N}\n"
       << "  Error:   {\"success\": false, \"error\": \"message\"}\n"
@@ -327,8 +325,7 @@ int run_http(r2sql::Session& s, const Args& a) {
       std::string out = s.raw_cmd(body.substr(i + kRaw.size()));
       return xsql::json{{"success", true}, {"output", out}}.dump();
     }
-    auto r = s.query(body);
-    return result_to_json(r).dump();
+    return query_to_envelope(s, body);
   };
   cfg.status_fn = []() {
     return xsql::json{{"mode", "cli"}, {"tool", "r2sql"}};
@@ -365,8 +362,7 @@ int run_http(r2sql::Session& s, const Args& a) {
 #if R2SQL_HAS_MCP
 int run_mcp(r2sql::Session& s, const Args& a) {
   r2sql::QueryCallback sql_cb = [&s](const std::string& sql) -> std::string {
-    auto r = s.query(sql);
-    return result_to_json(r).dump();
+    return query_to_envelope(s, sql);
   };
 
   r2sql::McpServer mcp;
@@ -416,9 +412,9 @@ int main(int argc, char** argv) {
   if (a.show_help)    { print_help(); return 0; }
   if (a.show_version) {
 #if R2SQL_HAVE_LIBR
-    std::printf("r2sql-full %s (embedded radare2 / libr)\n", r2sql::version());
+    std::printf("r2sql-full %s (embedded radare2 / libr)\n" R2SQL_COPYRIGHT_STRING "\n", r2sql::version());
 #else
-    std::printf("r2sql %s (pipe-only)\n", r2sql::version());
+    std::printf("r2sql %s (pipe-only)\n" R2SQL_COPYRIGHT_STRING "\n", r2sql::version());
 #endif
     return 0;
   }

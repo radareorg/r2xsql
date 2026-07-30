@@ -1,9 +1,8 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: LicenseRef-Human-Origin-Source-1.0
 // Copyright (c) 2024-2026 Elias Bachaalany
 //
-// This Source Code Form is subject to the terms of the Mozilla Public
-// License, v. 2.0. If a copy of the MPL was not distributed with this
-// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// This file is licensed under the Human-Origin Source License v1.0.
+// See LICENSE.
 //
 // core_r2sql.cpp — radare2 RCorePlugin entrypoint for r2sql.
 //
@@ -36,18 +35,18 @@
 #include <string>
 #include <string_view>
 
+#include <functional>
+
 #include <xsql/json.hpp>
+#include <xsql/query_script.hpp>
 #include <xsql/thinclient/http_query_server.hpp>
 
 #if R2SQL_HAS_MCP
 #include "../common/mcp_server.hpp"
 #endif
 
-namespace r2sql {
-// Defined in backend_libr.cpp; wraps the host RCore* without taking
-// ownership.
-extern "C" std::unique_ptr<Backend> make_libr_backend_from_core(void* core_ptr);
-}  // namespace r2sql
+// r2sql::make_libr_backend_from_core (declared in <r2sql/backend.hpp>, included
+// via <r2sql/r2sql.hpp> above) wraps the host RCore* without taking ownership.
 
 namespace {
 
@@ -84,7 +83,7 @@ void print_help(RCore* core) {
       "       sql                this help\n"
       "\n"
       "HTTP REST server:\n"
-      "       sql.http [port]    start HTTP server (default: random 8100-8199)\n"
+      "       sql.http [port]    start HTTP server (default: random 8100-8999)\n"
       "       sql.http-          stop HTTP server\n"
       "       sql.http?          print HTTP server status\n"
 #if R2SQL_HAS_MCP
@@ -95,32 +94,31 @@ void print_help(RCore* core) {
       "       sql.mcp?           print MCP server status\n"
 #endif
       "\n"
-      "Tables available: welcome, funcs, blocks, instructions, xrefs,\n"
-      "                  strings, imports, exports, sections, segments,\n"
-      "                  flags, comments, bookmarks, grep, pseudocode*\n"
+      "Tables: binary, funcs, locals, blocks, bytes, cfg_edges, switch_tables,\n"
+      "        function_frames, dominators, post_dominators, loops, data_items,\n"
+      "        byte_search, instructions, instruction_operands, esil_ops,\n"
+      "        esil_operands, xrefs, strings, imports, entries, sections,\n"
+      "        segments, io_maps, flags, comments, bookmarks, grep, pseudocode*,\n"
+      "        types, types_members, projects, runtime_settings\n"
+      "Views:  ir_ops, ir_operands, ir_maturities, ir_v_calls, ir_v_mem_writes,\n"
+      "        ir_v_mem_reads, ir_v_branches, ir_v_arith\n"
       "(* pseudocode only if a decompiler plugin like pdg/pdd/pdc is loaded)");
 }
 
-// Serialize an xsql::Result to the canonical r2sql single-statement
-// envelope used by --http and --mcp.
-xsql::json plugin_result_to_json(const xsql::Result& r) {
-  if (!r.ok()) {
-    return xsql::json{{"success", false}, {"error", r.error}};
-  }
-  xsql::json cols = xsql::json::array();
-  for (const auto& c : r.columns) cols.push_back(c);
-  xsql::json rows = xsql::json::array();
-  for (const auto& row : r) {
-    xsql::json jrow = xsql::json::array();
-    for (size_t i = 0; i < row.size(); ++i) jrow.push_back(row[i]);
-    rows.push_back(std::move(jrow));
-  }
-  return xsql::json{
-      {"success", true},
-      {"columns", std::move(cols)},
-      {"rows", std::move(rows)},
-      {"row_count", static_cast<int64_t>(r.rows.size())},
+// Run a SQL query/script against the session and serialize the canonical
+// run_script envelope used by --http and --mcp (matching the rest of the xsql
+// family). run_script gives multi-statement support and lets the thinclient's
+// ?format=text|csv|tsv re-render the result via json_to_script_result.
+std::string plugin_query_envelope(r2sql::Session& s, const std::string& body) {
+  auto exec = [&s](const std::string& sql, xsql::ScriptStatementResult& out) {
+    auto r = s.query(sql);
+    out.success = r.ok();
+    out.error = r.error;
+    out.columns = r.columns;
+    out.rows.reserve(r.rows.size());
+    for (const auto& row : r.rows) out.rows.push_back(row.values);
   };
+  return xsql::script_result_to_json(xsql::run_script(body, {}, std::ref(exec)));
 }
 
 // Run a request body against the shared session: ".r2cmd <command>" forwards
@@ -140,7 +138,7 @@ std::string plugin_raw_or_sql(const std::string& body) {
       std::string out = g_state.session->raw_cmd(body.substr(i + kRaw.size()));
       return xsql::json{{"success", true}, {"output", out}}.dump();
     }
-    return plugin_result_to_json(g_state.session->query(body)).dump();
+    return plugin_query_envelope(*g_state.session, body);
   } catch (const std::exception& e) {
     return xsql::json{{"success", false}, {"error", e.what()}}.dump();
   } catch (...) {
@@ -302,8 +300,7 @@ void handle_mcp_command(RCore* core, const char* tail) {
                         {"error", "session not initialized"}}.dump();
     }
     try {
-      auto res = g_state.session->query(sql);
-      return plugin_result_to_json(res).dump();
+      return plugin_query_envelope(*g_state.session, sql);
     } catch (const std::exception& e) {
       return xsql::json{{"success", false}, {"error", e.what()}}.dump();
     } catch (...) {
@@ -478,8 +475,8 @@ static RCorePlugin r_core_plugin_r2sql = {
         /*.name =*/ const_cast<char*>("r2sql"),
         /*.desc =*/ const_cast<char*>("SQL interface for radare2 (libr2sql)"),
         /*.author =*/ const_cast<char*>("0xeb"),
-        /*.version =*/ const_cast<char*>("0.0.1"),
-        /*.license =*/ const_cast<char*>("MPL-2.0"),
+        /*.version =*/ const_cast<char*>("0.0.2"),
+        /*.license =*/ const_cast<char*>("LicenseRef-Human-Origin-Source-1.0"),
         /*.contact =*/ const_cast<char*>("r2sql@invalid.example"),
         /*.copyright =*/ const_cast<char*>("Copyright (c) 2024-2026 Elias Bachaalany"),
         /*.status =*/ R_PLUGIN_STATUS_BASIC,
