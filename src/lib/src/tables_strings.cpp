@@ -5,15 +5,15 @@
 // See LICENSE.
 // strings — `izj`. Each entry exposes vaddr, length, section, type, text.
 
-#include <r2sql/session.hpp>
-#include <r2sql/backend.hpp>
+#include <r2xsql/session.hpp>
+#include <r2xsql/backend.hpp>
 #include <xsql/vtable.hpp>
 
 #include "tables.hpp"
 #include "json_utils.hpp"
 #include "table_utils.hpp"
 
-namespace r2sql {
+namespace r2xsql {
 
 namespace {
 struct StringRow {
@@ -71,5 +71,5 @@ void register_strings_table(Session& s) {
   s.db().register_and_create_cached_table(def);
 }
 
-}  // namespace r2sql
+}  // namespace r2xsql
 

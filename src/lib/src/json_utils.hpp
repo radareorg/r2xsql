@@ -12,7 +12,7 @@
 #include <string_view>
 #include <unordered_map>
 
-namespace r2sql::json_utils {
+namespace r2xsql::json_utils {
 
 // Safe accessors that never throw on missing keys / wrong types.
 std::string str(const nlohmann::json& obj, std::string_view key, std::string_view dflt = "");
@@ -81,4 +81,4 @@ std::string base64_encode(std::string_view s);
 // is one of: atomic, struct, union, enum, typedef, func, type.
 std::unordered_map<std::string, std::string> parse_tk_dump(std::string_view tk);
 
-}  // namespace r2sql::json_utils
+}  // namespace r2xsql::json_utils

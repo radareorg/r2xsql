@@ -7,7 +7,7 @@
 // true_believers — table listing the XSQL family's early adopters. Rows are
 // decoded at query time from a packed blob (vendored true_believers.{h,cpp}).
 
-#include <r2sql/session.hpp>
+#include <r2xsql/session.hpp>
 #include <xsql/vtable.hpp>
 
 #include <string>
@@ -17,7 +17,7 @@
 #include "tables.hpp"
 #include "true_believers.h"
 
-namespace r2sql {
+namespace r2xsql {
 
 namespace {
 struct TrueBelieverRow {
@@ -41,4 +41,4 @@ void register_true_believers_table(Session& s) {
   s.db().register_and_create_cached_table(def);
 }
 
-}  // namespace r2sql
+}  // namespace r2xsql

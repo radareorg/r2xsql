@@ -4,9 +4,9 @@
 // This file is licensed under the Human-Origin Source License v1.0.
 // See LICENSE.
 //
-// core_r2sql.cpp — radare2 RCorePlugin entrypoint for r2sql.
+// core_r2xsql.cpp — radare2 RCorePlugin entrypoint for r2xsql.
 //
-// Once loaded into radare2 (e.g. `L core_r2sql.dll` / `core_r2sql.so`),
+// Once loaded into radare2 (e.g. `L core_r2xsql.dll` / `core_r2xsql.so`),
 // this plugin registers a `sql` command:
 //
 //   sql                  print help
@@ -14,14 +14,14 @@
 //   sql.<SQL>            execute (legacy/discoverable shortcut)
 //   sql.?                help
 //   sql.http [port]      start/stop/status the HTTP REST server
-//   sql.mcp  [port]      start/stop/status the MCP server (when R2SQL_HAS_MCP)
+//   sql.mcp  [port]      start/stop/status the MCP server (when R2XSQL_HAS_MCP)
 //
-// The plugin wraps the host RCore* with libr2sql's LibrBackend (no
+// The plugin wraps the host RCore* with libr2xsql's LibrBackend (no
 // ownership) and shares a single Session across calls so SQLite caches
 // stay warm. The HTTP and MCP servers run against that same shared Session.
 
-#include <r2sql/r2sql.hpp>
-#include <r2sql/backend_mock.hpp>
+#include <r2xsql/r2xsql.hpp>
+#include <r2xsql/backend_mock.hpp>
 
 #include <r_core.h>
 #include <r_lib.h>
@@ -41,24 +41,24 @@
 #include <xsql/query_script.hpp>
 #include <xsql/thinclient/http_query_server.hpp>
 
-#if R2SQL_HAS_MCP
+#if R2XSQL_HAS_MCP
 #include "../common/mcp_server.hpp"
 #endif
 
-// r2sql::make_libr_backend_from_core (declared in <r2sql/backend.hpp>, included
-// via <r2sql/r2sql.hpp> above) wraps the host RCore* without taking ownership.
+// r2xsql::make_libr_backend_from_core (declared in <r2xsql/backend.hpp>, included
+// via <r2xsql/r2xsql.hpp> above) wraps the host RCore* without taking ownership.
 
 namespace {
 
 struct PluginState {
-  std::unique_ptr<r2sql::Session> session;
+  std::unique_ptr<r2xsql::Session> session;
   RCore* bound_core = nullptr;
   std::mutex mu;
   std::unique_ptr<xsql::thinclient::http_query_server> http;
   int http_port = 0;
   std::string http_bind;
-#if R2SQL_HAS_MCP
-  std::unique_ptr<r2sql::McpServer> mcp;
+#if R2XSQL_HAS_MCP
+  std::unique_ptr<r2xsql::McpServer> mcp;
   int mcp_port = 0;
   std::string mcp_bind;
 #endif
@@ -69,8 +69,8 @@ PluginState g_state;
 void ensure_session(RCore* core) {
   std::lock_guard<std::mutex> lock(g_state.mu);
   if (g_state.session && g_state.bound_core == core) return;
-  auto backend = r2sql::make_libr_backend_from_core(core);
-  g_state.session = std::make_unique<r2sql::Session>(std::move(backend));
+  auto backend = r2xsql::make_libr_backend_from_core(core);
+  g_state.session = std::make_unique<r2xsql::Session>(std::move(backend));
   g_state.bound_core = core;
 }
 
@@ -86,7 +86,7 @@ void print_help(RCore* core) {
       "       sql.http [port]    start HTTP server (default: random 8100-8999)\n"
       "       sql.http-          stop HTTP server\n"
       "       sql.http?          print HTTP server status\n"
-#if R2SQL_HAS_MCP
+#if R2XSQL_HAS_MCP
       "\n"
       "MCP server (SSE/JSON-RPC, fastmcpp):\n"
       "       sql.mcp [port]     start MCP server (default: random 9000-9999)\n"
@@ -109,7 +109,7 @@ void print_help(RCore* core) {
 // run_script envelope used by --http and --mcp (matching the rest of the xsql
 // family). run_script gives multi-statement support and lets the thinclient's
 // ?format=text|csv|tsv re-render the result via json_to_script_result.
-std::string plugin_query_envelope(r2sql::Session& s, const std::string& body) {
+std::string plugin_query_envelope(r2xsql::Session& s, const std::string& body) {
   auto exec = [&s](const std::string& sql, xsql::ScriptStatementResult& out) {
     auto r = s.query(sql);
     out.success = r.ok();
@@ -155,11 +155,11 @@ void handle_http_command(RCore* core, const char* tail) {
     if (g_state.http && g_state.http->is_running()) {
       char buf[160];
       std::snprintf(buf, sizeof(buf),
-                    "r2sql: HTTP server running at http://%s:%d",
+                    "r2xsql: HTTP server running at http://%s:%d",
                     g_state.http_bind.c_str(), g_state.http_port);
       r_cons_println(core->cons, buf);
     } else {
-      r_cons_println(core->cons, "r2sql: HTTP server not running.");
+      r_cons_println(core->cons, "r2xsql: HTTP server not running.");
     }
     return;
   }
@@ -174,9 +174,9 @@ void handle_http_command(RCore* core, const char* tail) {
     }
     if (server) {
       server->stop();
-      r_cons_println(core->cons, "r2sql: HTTP server stopped.");
+      r_cons_println(core->cons, "r2xsql: HTTP server stopped.");
     } else {
-      r_cons_println(core->cons, "r2sql: HTTP server was not running.");
+      r_cons_println(core->cons, "r2xsql: HTTP server was not running.");
     }
     return;
   }
@@ -185,7 +185,7 @@ void handle_http_command(RCore* core, const char* tail) {
     std::lock_guard<std::mutex> lock(g_state.mu);
     if (g_state.http && g_state.http->is_running()) {
       r_cons_println(core->cons,
-                     "r2sql: HTTP server already running. Use `sql.http-` to stop it.");
+                     "r2xsql: HTTP server already running. Use `sql.http-` to stop it.");
       return;
     }
   }
@@ -200,7 +200,7 @@ void handle_http_command(RCore* core, const char* tail) {
   ensure_session(core);
 
   xsql::thinclient::http_query_server_config cfg;
-  cfg.tool_name = "r2sql";
+  cfg.tool_name = "r2xsql";
   cfg.port = port;
   cfg.bind_address = "127.0.0.1";
   cfg.use_queue = false;  // worker thread calls query_fn; it locks g_state.mu
@@ -208,7 +208,7 @@ void handle_http_command(RCore* core, const char* tail) {
     return plugin_raw_or_sql(body);
   };
   cfg.status_fn = []() {
-    return xsql::json{{"mode", "in-r2"}, {"tool", "r2sql"}};
+    return xsql::json{{"mode", "in-r2"}, {"tool", "r2xsql"}};
   };
 
   auto server = std::make_unique<xsql::thinclient::http_query_server>(cfg);
@@ -216,7 +216,7 @@ void handle_http_command(RCore* core, const char* tail) {
   if (bound_port < 0) {
     char buf[128];
     std::snprintf(buf, sizeof(buf),
-                  "r2sql: failed to start HTTP server on port %d.", port);
+                  "r2xsql: failed to start HTTP server on port %d.", port);
     r_cons_println(core->cons, buf);
     return;
   }
@@ -229,12 +229,12 @@ void handle_http_command(RCore* core, const char* tail) {
   }
 
   char buf[160];
-  std::snprintf(buf, sizeof(buf), "r2sql: HTTP server: http://127.0.0.1:%d",
+  std::snprintf(buf, sizeof(buf), "r2xsql: HTTP server: http://127.0.0.1:%d",
                 bound_port);
   r_cons_println(core->cons, buf);
 }
 
-#if R2SQL_HAS_MCP
+#if R2XSQL_HAS_MCP
 
 void handle_mcp_command(RCore* core, const char* tail) {
   // tail points after "mcp": empty, " <port>", "-", or "?"
@@ -243,18 +243,18 @@ void handle_mcp_command(RCore* core, const char* tail) {
   if (*tail == '?') {
     std::lock_guard<std::mutex> lock(g_state.mu);
     if (g_state.mcp && g_state.mcp->is_running()) {
-      std::string s = r2sql::format_mcp_status(g_state.mcp_port,
+      std::string s = r2xsql::format_mcp_status(g_state.mcp_port,
                                                /*running=*/true,
                                                g_state.mcp_bind);
       r_cons_print(core->cons, s.c_str());
     } else {
-      r_cons_println(core->cons, "r2sql: MCP server not running.");
+      r_cons_println(core->cons, "r2xsql: MCP server not running.");
     }
     return;
   }
 
   if (*tail == '-') {
-    std::unique_ptr<r2sql::McpServer> server;
+    std::unique_ptr<r2xsql::McpServer> server;
     {
       std::lock_guard<std::mutex> lock(g_state.mu);
       server = std::move(g_state.mcp);
@@ -263,9 +263,9 @@ void handle_mcp_command(RCore* core, const char* tail) {
     }
     if (server) {
       server->stop();
-      r_cons_println(core->cons, "r2sql: MCP server stopped.");
+      r_cons_println(core->cons, "r2xsql: MCP server stopped.");
     } else {
-      r_cons_println(core->cons, "r2sql: MCP server was not running.");
+      r_cons_println(core->cons, "r2xsql: MCP server was not running.");
     }
     return;
   }
@@ -275,7 +275,7 @@ void handle_mcp_command(RCore* core, const char* tail) {
     std::lock_guard<std::mutex> lock(g_state.mu);
     if (g_state.mcp && g_state.mcp->is_running()) {
       r_cons_println(core->cons,
-                     "r2sql: MCP server already running. Use `sql.mcp-` to stop it.");
+                     "r2xsql: MCP server already running. Use `sql.mcp-` to stop it.");
       return;
     }
   }
@@ -289,11 +289,11 @@ void handle_mcp_command(RCore* core, const char* tail) {
 
   ensure_session(core);
 
-  auto server = std::make_unique<r2sql::McpServer>();
+  auto server = std::make_unique<r2xsql::McpServer>();
   // use_queue=false: SSE worker thread calls our query callback directly.
   // The callback acquires g_state.mu, so MCP queries serialize against
   // any concurrent `sql.<query>` from r2's command thread.
-  r2sql::QueryCallback cb = [core](const std::string& sql) -> std::string {
+  r2xsql::QueryCallback cb = [core](const std::string& sql) -> std::string {
     std::lock_guard<std::mutex> lock(g_state.mu);
     if (!g_state.session) {
       return xsql::json{{"success", false},
@@ -313,7 +313,7 @@ void handle_mcp_command(RCore* core, const char* tail) {
   if (bound_port <= 0) {
     char buf[128];
     std::snprintf(buf, sizeof(buf),
-                  "r2sql: failed to start MCP server on port %d.", port);
+                  "r2xsql: failed to start MCP server on port %d.", port);
     r_cons_println(core->cons, buf);
     return;
   }
@@ -325,11 +325,11 @@ void handle_mcp_command(RCore* core, const char* tail) {
     g_state.mcp_bind = "127.0.0.1";
   }
 
-  std::string info = r2sql::format_mcp_info(bound_port, "127.0.0.1");
+  std::string info = r2xsql::format_mcp_info(bound_port, "127.0.0.1");
   r_cons_print(core->cons, info.c_str());
 }
 
-#endif  // R2SQL_HAS_MCP
+#endif  // R2XSQL_HAS_MCP
 
 std::string render_table(const xsql::Result& res) {
   std::ostringstream oss;
@@ -390,7 +390,7 @@ bool dispatch(RCore* core, const char* input) {
     }
   }
 
-#if R2SQL_HAS_MCP
+#if R2XSQL_HAS_MCP
   // `sql.mcp [port]` / `sql.mcp-` / `sql.mcp?`
   if (std::strncmp(input, "mcp", 3) == 0) {
     const char* rest = input + 3;
@@ -450,8 +450,8 @@ bool plugin_fini(RCorePluginSession* /*ctx*/) {
     }
     if (http_server) http_server->stop();
   }
-#if R2SQL_HAS_MCP
-  std::unique_ptr<r2sql::McpServer> server;
+#if R2XSQL_HAS_MCP
+  std::unique_ptr<r2xsql::McpServer> server;
   {
     std::lock_guard<std::mutex> lock(g_state.mu);
     server = std::move(g_state.mcp);
@@ -470,14 +470,14 @@ bool plugin_fini(RCorePluginSession* /*ctx*/) {
 
 extern "C" {
 
-static RCorePlugin r_core_plugin_r2sql = {
+static RCorePlugin r_core_plugin_r2xsql = {
     /*.meta =*/ {
-        /*.name =*/ const_cast<char*>("r2sql"),
-        /*.desc =*/ const_cast<char*>("SQL interface for radare2 (libr2sql)"),
+        /*.name =*/ const_cast<char*>("r2xsql"),
+        /*.desc =*/ const_cast<char*>("SQL interface for radare2 (libr2xsql)"),
         /*.author =*/ const_cast<char*>("0xeb"),
         /*.version =*/ const_cast<char*>("0.0.2"),
         /*.license =*/ const_cast<char*>("LicenseRef-Human-Origin-Source-1.0"),
-        /*.contact =*/ const_cast<char*>("r2sql@invalid.example"),
+        /*.contact =*/ const_cast<char*>("r2xsql@invalid.example"),
         /*.copyright =*/ const_cast<char*>("Copyright (c) 2024-2026 Elias Bachaalany"),
         /*.status =*/ R_PLUGIN_STATUS_BASIC,
     },
@@ -487,17 +487,17 @@ static RCorePlugin r_core_plugin_r2sql = {
 };
 
 #ifdef _WIN32
-#define R2SQL_PLUGIN_EXPORT __declspec(dllexport)
+#define R2XSQL_PLUGIN_EXPORT __declspec(dllexport)
 #else
-#define R2SQL_PLUGIN_EXPORT __attribute__((visibility("default")))
+#define R2XSQL_PLUGIN_EXPORT __attribute__((visibility("default")))
 #endif
 
-R2SQL_PLUGIN_EXPORT RLibStruct radare_plugin = {
+R2XSQL_PLUGIN_EXPORT RLibStruct radare_plugin = {
     /*.type =*/ R_LIB_TYPE_CORE,
-    /*.data =*/ &r_core_plugin_r2sql,
+    /*.data =*/ &r_core_plugin_r2xsql,
     /*.version =*/ R2_VERSION,
     /*.free =*/ nullptr,
-    /*.pkgname =*/ const_cast<char*>("r2sql"),
+    /*.pkgname =*/ const_cast<char*>("r2xsql"),
     /*.abiversion =*/ R2_ABIVERSION,
 };
 

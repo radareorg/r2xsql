@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include <r2sql/backend.hpp>
+#include <r2xsql/backend.hpp>
 
 #include <deque>
 #include <memory>
@@ -15,11 +15,11 @@
 #include <unordered_map>
 #include <vector>
 
-namespace r2sql {
+namespace r2xsql {
 
 // In-memory mock backend: records every command sent to it and replies with
 // canned responses. Unknown commands return an empty string (matching r2's
-// behaviour for unknown / no-output commands). Useful for embedding r2sql or
+// behaviour for unknown / no-output commands). Useful for embedding r2xsql or
 // driving it offline without a live radare2.
 class MockBackend : public Backend {
 public:
@@ -56,4 +56,4 @@ private:
 
 std::unique_ptr<Backend> make_mock_backend();
 
-}  // namespace r2sql
+}  // namespace r2xsql

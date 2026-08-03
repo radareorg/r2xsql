@@ -8,7 +8,7 @@
 #include <cctype>
 #include <cstdio>
 
-namespace r2sql::json_utils {
+namespace r2xsql::json_utils {
 
 std::string str(const nlohmann::json& obj, std::string_view key, std::string_view dflt) {
   std::string k(key);
@@ -247,4 +247,4 @@ std::unordered_map<std::string, std::string> parse_tk_dump(std::string_view tk) 
   return out;
 }
 
-}  // namespace r2sql::json_utils
+}  // namespace r2xsql::json_utils

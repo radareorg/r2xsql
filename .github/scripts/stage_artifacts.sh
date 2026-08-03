@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Stage r2sql release trees from a completed build:
+# Stage r2xsql release trees from a completed build:
 #   dist/overlay/  — extract ON TOP OF a radare2 install prefix (libr drop-in):
-#                      bin/r2sql[.exe]            (next to radare2[.exe])
-#                      <r2-plugin-dir>/core_r2sql.*  (r2's own plugin search dir)
-#   dist/pipe/     — standalone pipe-only r2sql[.exe] (needs radare2 on PATH)
+#                      bin/r2xsql[.exe]            (next to radare2[.exe])
+#                      <r2-plugin-dir>/core_r2xsql.*  (r2's own plugin search dir)
+#   dist/pipe/     — standalone pipe-only r2xsql[.exe] (needs radare2 on PATH)
 #
 # The plugin's relative path is derived from the installed prefix layout so the
 # overlay drops the plugin exactly where this r2 looks for it — Linux uses
@@ -11,7 +11,7 @@
 set -euo pipefail
 
 PFX="${GITHUB_WORKSPACE}/r2prefix"
-# On Windows runners GITHUB_WORKSPACE is a backslash path (D:\a\r2sql\r2sql),
+# On Windows runners GITHUB_WORKSPACE is a backslash path (D:\a\r2xsql\r2xsql),
 # which find/grep/test choke on under Git-Bash. Normalize to a Unix-style path
 # (cygpath exists only in Git-Bash; a no-op elsewhere).
 if command -v cygpath >/dev/null 2>&1; then
@@ -71,54 +71,54 @@ rm -rf dist
 mkdir -p "dist/overlay/bin" "dist/overlay/${REL_PLUGIN}" "dist/pipe"
 
 # Both flavors come from the SAME build tree (one configure with
-# R2SQL_BUILD_FULL=ON): r2sql (pipe), r2sql-full (libr CLI), core_r2sql (plugin).
+# R2XSQL_BUILD_FULL=ON): r2xsql (pipe), r2xsql-full (libr CLI), core_r2xsql (plugin).
 
 # --- overlay: full (libr) CLI + in-r2 plugin ---
 copy_first "dist/overlay/bin/" \
-  build/bin/r2sql-full build/bin/r2sql-full.exe \
-  build/bin/Release/r2sql-full.exe build/src/cli/r2sql-full build/src/cli/Release/r2sql-full.exe
+  build/bin/r2xsql-full build/bin/r2xsql-full.exe \
+  build/bin/Release/r2xsql-full.exe build/src/cli/r2xsql-full build/src/cli/Release/r2xsql-full.exe
 
 copy_first "dist/overlay/${REL_PLUGIN}/" \
-  build/bin/core_r2sql.so build/bin/core_r2sql.dylib build/bin/core_r2sql.dll \
-  build/bin/Release/core_r2sql.dll build/src/plugin/core_r2sql.so \
-  build/src/plugin/Release/core_r2sql.dll
+  build/bin/core_r2xsql.so build/bin/core_r2xsql.dylib build/bin/core_r2xsql.dll \
+  build/bin/Release/core_r2xsql.dll build/src/plugin/core_r2xsql.so \
+  build/src/plugin/Release/core_r2xsql.dll
 
 # --- pipe-only: standalone single binary (same build tree) ---
 copy_first "dist/pipe/" \
-  build/bin/r2sql build/bin/r2sql.exe \
-  build/bin/Release/r2sql.exe build/src/cli/r2sql build/src/cli/Release/r2sql.exe
+  build/bin/r2xsql build/bin/r2xsql.exe \
+  build/bin/Release/r2xsql.exe build/src/cli/r2xsql build/src/cli/Release/r2xsql.exe
 
 cat > dist/overlay/README.txt <<EOF
-r2sql-full — radare2 drop-in (overlay, embedded/libr flavor)
+r2xsql-full — radare2 drop-in (overlay, embedded/libr flavor)
 
 Extract this archive ON TOP OF your radare2 install prefix (the directory
 that contains bin/radare2[.exe]). It adds:
 
-  bin/r2sql-full[.exe]          full CLI + HTTP/MCP server (in-process libr)
-  ${REL_PLUGIN}/core_r2sql.*    in-r2 plugin (load inside r2: L core_r2sql.<ext>)
+  bin/r2xsql-full[.exe]          full CLI + HTTP/MCP server (in-process libr)
+  ${REL_PLUGIN}/core_r2xsql.*    in-r2 plugin (load inside r2: L core_r2xsql.<ext>)
 
-Because r2sql-full then sits next to radare2[.exe], the libr backend finds
+Because r2xsql-full then sits next to radare2[.exe], the libr backend finds
 radare2's data dir (share/) automatically, so the 'types' table and
 ordinal imports resolve fully.
 
 Usage:
-  r2sql-full -s <file> -q "SELECT name FROM funcs LIMIT 5"
+  r2xsql-full -s <file> -q "SELECT name FROM funcs LIMIT 5"
   radare2 <file>     then inside r2:   sql SELECT * FROM funcs
 
-(For a portable build that needs no co-location, see the pipe-only r2sql.)
+(For a portable build that needs no co-location, see the pipe-only r2xsql.)
 
 Built against radare2 ${R2_REF}.
 EOF
 
 cat > dist/pipe/README.txt <<EOF
-r2sql — pipe-only single binary
+r2xsql — pipe-only single binary
 
-A standalone r2sql[.exe] with NO radare2 libraries linked. It drives
+A standalone r2xsql[.exe] with NO radare2 libraries linked. It drives
 radare2 over a pipe (--r2pipe), so it only needs radare2[.exe] somewhere
 on PATH at runtime. Place it anywhere.
 
 Usage:
-  r2sql -s <file> -q "SELECT name FROM funcs LIMIT 5"
+  r2xsql -s <file> -q "SELECT name FROM funcs LIMIT 5"
 
 Built against radare2 ${R2_REF} (API-compatible r2 on PATH is sufficient).
 EOF

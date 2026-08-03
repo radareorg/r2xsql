@@ -14,14 +14,14 @@
 
 #include <nlohmann/json.hpp>
 
-#include <r2sql/session.hpp>
-#include <r2sql/backend.hpp>
+#include <r2xsql/session.hpp>
+#include <r2xsql/backend.hpp>
 #include <xsql/vtable.hpp>
 
 #include "tables.hpp"
 #include "json_utils.hpp"
 
-namespace r2sql {
+namespace r2xsql {
 
 namespace {
 struct InsnRow {
@@ -181,4 +181,4 @@ void register_instructions_table(Session& s) {
   // `instructions` for cheap per-instruction classification.
 }
 
-}  // namespace r2sql
+}  // namespace r2xsql

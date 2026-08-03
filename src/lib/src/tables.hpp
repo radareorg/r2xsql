@@ -7,7 +7,7 @@
 
 #pragma once
 
-namespace r2sql {
+namespace r2xsql {
 
 class Session;
 
@@ -51,4 +51,4 @@ void register_projects_table(Session& s);
 void register_runtime_settings_table(Session& s);
 void register_true_believers_table(Session& s);  // true_believers table
 
-}  // namespace r2sql
+}  // namespace r2xsql

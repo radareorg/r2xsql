@@ -18,8 +18,8 @@
 //   size      INT64 — byte size (-1 for unsized/opaque/pointer-like)
 //   format    TEXT  — pf-style format string (atomics/structs/unions); empty otherwise
 
-#include <r2sql/session.hpp>
-#include <r2sql/backend.hpp>
+#include <r2xsql/session.hpp>
+#include <r2xsql/backend.hpp>
 #include <xsql/vtable.hpp>
 
 #include "tables.hpp"
@@ -31,7 +31,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace r2sql {
+namespace r2xsql {
 
 namespace {
 
@@ -106,7 +106,7 @@ void register_types_table(Session& s) {
     .column_text ("format", [](const TypeRow& r) { return r.format; })
     // DELETE FROM types WHERE name='X' removes the type (`t- X`). Creation
     // needs a full C declaration that doesn't fit the row columns, so it is
-    // exposed via the r2sql_type_define('<C decl>') scalar function instead.
+    // exposed via the r2xsql_type_define('<C decl>') scalar function instead.
     .deletable([be = s.backend_ptr()](TypeRow& r) -> bool {
       if (r.name.empty() || !json_utils::valid_flag_name(r.name)) {
         xsql::set_vtab_error("types: refusing to delete an unsafe/empty type name");
@@ -122,4 +122,4 @@ void register_types_table(Session& s) {
   (void)s.db().register_and_create_cached_table(def);
 }
 
-}  // namespace r2sql
+}  // namespace r2xsql

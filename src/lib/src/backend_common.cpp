@@ -3,9 +3,9 @@
 //
 // This file is licensed under the Human-Origin Source License v1.0.
 // See LICENSE.
-#include <r2sql/backend.hpp>
+#include <r2xsql/backend.hpp>
 
-namespace r2sql {
+namespace r2xsql {
 
 nlohmann::json Backend::cmd_json(std::string_view command, BackendError* err) {
   std::string text = cmd(command);
@@ -24,4 +24,4 @@ nlohmann::json Backend::cmd_json(std::string_view command, BackendError* err) {
   }
 }
 
-}  // namespace r2sql
+}  // namespace r2xsql

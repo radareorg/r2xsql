@@ -6,12 +6,12 @@
 
 #pragma once
 
-#define R2SQL_VERSION_MAJOR 0
-#define R2SQL_VERSION_MINOR 0
-#define R2SQL_VERSION_PATCH 2
-#define R2SQL_VERSION_STRING "0.0.2"
-#define R2SQL_COPYRIGHT_STRING "Copyright (c) 2024-2026 Elias Bachaalany"
+#define R2XSQL_VERSION_MAJOR 0
+#define R2XSQL_VERSION_MINOR 0
+#define R2XSQL_VERSION_PATCH 2
+#define R2XSQL_VERSION_STRING "0.0.2"
+#define R2XSQL_COPYRIGHT_STRING "Copyright (c) 2024-2026 Elias Bachaalany"
 
-namespace r2sql {
+namespace r2xsql {
 const char* version();
 }

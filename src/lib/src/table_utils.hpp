@@ -7,14 +7,14 @@
 
 #pragma once
 
-#include <r2sql/backend.hpp>
+#include <r2xsql/backend.hpp>
 
 #include <cctype>
 #include <cstddef>
 #include <string>
 #include <string_view>
 
-namespace r2sql::table_utils {
+namespace r2xsql::table_utils {
 
 inline std::string trim_ascii(std::string s) {
   while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back()))) {
@@ -64,4 +64,4 @@ inline size_t quick_count(Backend* be, std::string_view command, size_t fallback
   }
 }
 
-}  // namespace r2sql::table_utils
+}  // namespace r2xsql::table_utils

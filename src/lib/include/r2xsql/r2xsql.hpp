@@ -4,10 +4,10 @@
 // This file is licensed under the Human-Origin Source License v1.0.
 // See LICENSE.
 //
-// r2sql.hpp — single-header convenience include for libr2sql.
+// r2xsql.hpp — single-header convenience include for libr2xsql.
 
 #pragma once
 
-#include <r2sql/version.hpp>
-#include <r2sql/backend.hpp>
-#include <r2sql/session.hpp>
+#include <r2xsql/version.hpp>
+#include <r2xsql/backend.hpp>
+#include <r2xsql/session.hpp>

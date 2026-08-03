@@ -6,8 +6,8 @@
 
 #pragma once
 
-#include <r2sql/backend.hpp>
-#include <r2sql/runtime_settings.hpp>
+#include <r2xsql/backend.hpp>
+#include <r2xsql/runtime_settings.hpp>
 
 #include <xsql/database.hpp>
 #include <xsql/json.hpp>
@@ -17,7 +17,7 @@
 #include <string>
 #include <string_view>
 
-namespace r2sql {
+namespace r2xsql {
 
 class Session {
 public:
@@ -38,7 +38,7 @@ public:
   Backend* backend_ptr() { return backend_.get(); }
 
   // Per-session runtime settings (query timeout, hints, timeout stack, ...),
-  // driven by the PRAGMA r2sql.* surface and surfaced read-only via the
+  // driven by the PRAGMA r2xsql.* surface and surfaced read-only via the
   // `runtime_settings` table. Reused by tables_runtime_settings.cpp.
   RuntimeSettings& runtime_settings() { return runtime_settings_; }
   const RuntimeSettings& runtime_settings() const { return runtime_settings_; }
@@ -67,10 +67,10 @@ private:
   void register_all_tables_();
   void register_functions_();
   void detect_decompiler_();
-  // Intercept a `PRAGMA r2sql.*` statement and, if it matches, service it
+  // Intercept a `PRAGMA r2xsql.*` statement and, if it matches, service it
   // through the shared runtime-pragma dispatcher. Returns true (with `out`
   // filled: a {name,value} row on success, or an error) iff the SQL was a
-  // r2sql runtime pragma; false lets the statement flow to SQLite unchanged.
+  // r2xsql runtime pragma; false lets the statement flow to SQLite unchanged.
   bool handle_runtime_pragma_(const char* sql, xsql::Result& out);
 
   std::unique_ptr<Backend> backend_;
@@ -85,4 +85,4 @@ private:
   std::mutex query_mu_;
 };
 
-}  // namespace r2sql
+}  // namespace r2xsql

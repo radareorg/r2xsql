@@ -10,21 +10,21 @@
 
 #include <cstddef>
 
-namespace r2sql {
+namespace r2xsql {
 
-// r2sql's runtime-settings wrapper over the shared libxsql core. r2sql carries
+// r2xsql's runtime-settings wrapper over the shared libxsql core. r2xsql carries
 // only the 8 common keys (query_timeout_ms / queue_admission_timeout_ms /
 // max_queue / hints_enabled / the timeout-stack view + the two dispatch-only
 // timeout_push/pop verbs) — it adds no tool-specific runtime knobs of its own.
 //
 // Unlike idasql, the settings are owned PER-Session (not a global singleton):
-// r2sql sessions are independent (one per open binary / server), so each keeps
-// its own PRAGMA r2sql.* state. The shared core does all the work — this thin
+// r2xsql sessions are independent (one per open binary / server), so each keeps
+// its own PRAGMA r2xsql.* state. The shared core does all the work — this thin
 // wrapper only states the timeout-stack cap explicitly and forwards accessors.
 class RuntimeSettings {
 public:
     RuntimeSettings()
-        // Cap the client-driven PRAGMA r2sql.timeout_push stack (matches
+        // Cap the client-driven PRAGMA r2xsql.timeout_push stack (matches
         // idasql/bnsql's 64, which is also the shared-core default). Stated
         // explicitly so the bound is visible at the adopter.
         : common_(xsql::runtime::RuntimeSettingsCoreOptions{64}) {}
@@ -42,4 +42,4 @@ private:
     xsql::runtime::RuntimeSettingsCore common_;
 };
 
-}  // namespace r2sql
+}  // namespace r2xsql

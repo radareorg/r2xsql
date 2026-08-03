@@ -8,8 +8,8 @@
 // bool, int}.
 //
 // Carries the raw bin-info fields from `iIj` (arch, bits, bintype, os, baddr,
-// endian, compiler, lang, ...) plus these r2sql identity / entry / count keys:
-//   r2sql_version  — tool version (raw key; tool_version is the canonical dup)
+// endian, compiler, lang, ...) plus these r2xsql identity / entry / count keys:
+//   r2xsql_version  — tool version (raw key; tool_version is the canonical dup)
 //   file           — input file path (ij -> core.file)
 //   entry          — program entry vaddr (iej[0].vaddr)
 //   entry_name     — flag/name at the entry (fd @ entry)
@@ -26,9 +26,9 @@
 // the canonical `bits`. md5/sha256 are best-effort core keys and are not
 // emitted (radare2's `it` hashing is best-effort and often skipped).
 
-#include <r2sql/session.hpp>
-#include <r2sql/backend.hpp>
-#include <r2sql/version.hpp>
+#include <r2xsql/session.hpp>
+#include <r2xsql/backend.hpp>
+#include <r2xsql/version.hpp>
 #include <xsql/vtable.hpp>
 
 #include <cstdint>
@@ -37,7 +37,7 @@
 #include "tables.hpp"
 #include "json_utils.hpp"
 
-namespace r2sql {
+namespace r2xsql {
 
 namespace {
 struct BinaryRow {
@@ -123,7 +123,7 @@ void register_binary_table(Session& s) {
       }
 
       // --- tool identity --------------------------------------------------
-      add("r2sql_version", r2sql::version(), "string");  // raw key (kept)
+      add("r2xsql_version", r2xsql::version(), "string");  // raw key (kept)
 
       // --- input file path (ij -> core.file) ------------------------------
       std::string file_path;
@@ -204,8 +204,8 @@ void register_binary_table(Session& s) {
 
       // --- canonical core keys (family-shared names; values alias the raw
       //     radare2 facts above so both spellings answer) --------------------
-      add("tool_name", "r2sql", "string");
-      add("tool_version", r2sql::version(), "string");
+      add("tool_name", "r2xsql", "string");
+      add("tool_version", r2xsql::version(), "string");
       if (!arch.empty())    add("processor", arch, "string");
       if (!bintype.empty()) add("filetype", bintype, "string");
       if (have_baddr)       add("image_base", hex_u64(baddr), "hex");
@@ -232,4 +232,4 @@ void register_binary_table(Session& s) {
   s.db().register_and_create_cached_table(def);
 }
 
-}  // namespace r2sql
+}  // namespace r2xsql

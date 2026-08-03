@@ -6,19 +6,19 @@
 // projects — radare2 project list (`Plj`). SELECT lists saved projects;
 // DELETE FROM projects WHERE name='X' removes it on disk (`P- X`). Saving and
 // opening a project mid-session are actions, not row states, so they are
-// exposed as the r2sql_project_save('name') / r2sql_project_open('name')
+// exposed as the r2xsql_project_save('name') / r2xsql_project_open('name')
 // scalar functions (see Session::register_functions_). The CLI `-w --project`
 // save-on-exit path is unchanged and complementary.
 
-#include <r2sql/session.hpp>
-#include <r2sql/backend.hpp>
+#include <r2xsql/session.hpp>
+#include <r2xsql/backend.hpp>
 #include <xsql/vtable.hpp>
 
 #include "tables.hpp"
 #include "json_utils.hpp"
 #include "table_utils.hpp"
 
-namespace r2sql {
+namespace r2xsql {
 
 namespace {
 struct ProjectRow {
@@ -56,4 +56,4 @@ void register_projects_table(Session& s) {
   s.db().register_and_create_cached_table(def);
 }
 
-}  // namespace r2sql
+}  // namespace r2xsql

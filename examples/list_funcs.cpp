@@ -4,13 +4,13 @@
 // This file is licensed under the Human-Origin Source License v1.0.
 // See LICENSE.
 //
-// list_funcs.cpp — minimal libr2sql consumer.
+// list_funcs.cpp — minimal libr2xsql consumer.
 //
 // Opens a binary (libr backend if available, else r2pipe), lists the
 // first N functions via SQL. Demonstrates the API a third-party tool
-// would use to embed r2sql.
+// would use to embed r2xsql.
 
-#include <r2sql/r2sql.hpp>
+#include <r2xsql/r2xsql.hpp>
 
 #include <cstdio>
 #include <cstdlib>
@@ -33,18 +33,18 @@ int main(int argc, char** argv) {
   const std::string path = argv[1];
   const int limit = (argc >= 3) ? std::atoi(argv[2]) : 20;
 
-  std::unique_ptr<r2sql::Backend> backend;
+  std::unique_ptr<r2xsql::Backend> backend;
 
   // Prefer libr; fall back to r2pipe if libr isn't linked or fails.
-  r2sql::LibrOpenOptions libr_opts;
+  r2xsql::LibrOpenOptions libr_opts;
   libr_opts.path = path;
-  backend = r2sql::open_libr(libr_opts);
+  backend = r2xsql::open_libr(libr_opts);
 
   if (!backend) {
     std::fprintf(stderr, "libr backend unavailable, falling back to r2pipe...\n");
-    r2sql::R2PipeOpenOptions pipe_opts;
+    r2xsql::R2PipeOpenOptions pipe_opts;
     pipe_opts.path = path;
-    backend = r2sql::open_r2pipe(pipe_opts);
+    backend = r2xsql::open_r2pipe(pipe_opts);
   }
 
   if (!backend) {
@@ -53,7 +53,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  r2sql::Session sess(std::move(backend));
+  r2xsql::Session sess(std::move(backend));
 
   const std::string sql =
       "SELECT addr, name, size FROM funcs ORDER BY size DESC LIMIT " +

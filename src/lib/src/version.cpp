@@ -3,8 +3,8 @@
 //
 // This file is licensed under the Human-Origin Source License v1.0.
 // See LICENSE.
-#include <r2sql/version.hpp>
+#include <r2xsql/version.hpp>
 
-namespace r2sql {
-const char* version() { return R2SQL_VERSION_STRING; }
-}  // namespace r2sql
+namespace r2xsql {
+const char* version() { return R2XSQL_VERSION_STRING; }
+}  // namespace r2xsql

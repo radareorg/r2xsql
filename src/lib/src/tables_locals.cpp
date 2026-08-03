@@ -8,7 +8,7 @@
 //   * name  → rename via `afvn <new> <old> @ <func_addr>`
 //   * type  → retype via `afvt <name> <type> @ <func_addr>`
 // r2 reflects a rename/retype immediately on the next read, so there is nothing
-// to batch: the table is a plain no_shared_cache table (no commit hook — r2sql
+// to batch: the table is a plain no_shared_cache table (no commit hook — r2xsql
 // declined the libxsql commit hook for exactly this reason).
 //
 // A full scan enumerates functions (`aflj`) and pulls each one's vars
@@ -24,15 +24,15 @@
 
 #include <nlohmann/json.hpp>
 
-#include <r2sql/session.hpp>
-#include <r2sql/backend.hpp>
+#include <r2xsql/session.hpp>
+#include <r2xsql/backend.hpp>
 #include <xsql/vtable.hpp>
 
 #include "tables.hpp"
 #include "json_utils.hpp"
 #include "table_utils.hpp"
 
-namespace r2sql {
+namespace r2xsql {
 
 namespace {
 struct LocalRow {
@@ -220,4 +220,4 @@ void register_locals_table(Session& s) {
   s.db().register_and_create_cached_table(def);
 }
 
-}  // namespace r2sql
+}  // namespace r2xsql

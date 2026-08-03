@@ -3,7 +3,7 @@
 //
 // This file is licensed under the Human-Origin Source License v1.0.
 // See LICENSE.
-// r2sql CLI — flag surface:
+// r2xsql CLI — flag surface:
 //   -s <file>       open binary or r2 project
 //   -q "<sql>"      run a single SQL statement (multiple via ;)
 //   -f <file.sql>   run a SQL script file
@@ -18,17 +18,17 @@
 //   --token <tok>   require Bearer token on HTTP endpoints
 //   --version       print version and exit
 //   -h, --help      print this help and exit
-// MCP support requires R2SQL_WITH_MCP=ON (the default; uses fastmcpp).
+// MCP support requires R2XSQL_WITH_MCP=ON (the default; uses fastmcpp).
 
-#include <r2sql/r2sql.hpp>
-#include <r2sql/backend_mock.hpp>
+#include <r2xsql/r2xsql.hpp>
+#include <r2xsql/backend_mock.hpp>
 
 #include <xsql/database.hpp>
 #include <xsql/json.hpp>
 #include <xsql/query_script.hpp>
 #include <xsql/thinclient/http_query_server.hpp>
 
-#if R2SQL_HAS_MCP
+#if R2XSQL_HAS_MCP
 #  include "../common/mcp_server.hpp"
 #endif
 
@@ -68,20 +68,20 @@ struct Args {
   std::string http_bind = "127.0.0.1";
   std::string http_token;
 
-  // MCP server (always-on once R2SQL_WITH_MCP=ON, which is the default).
+  // MCP server (always-on once R2XSQL_WITH_MCP=ON, which is the default).
   bool mcp = false;
   int  mcp_port = 0;
 };
 
 void print_help() {
   std::printf(
-#if R2SQL_HAVE_LIBR
-    "r2sql-full %s — SQL interface for radare2 (embedded radare2 / libr)\n"
+#if R2XSQL_HAVE_LIBR
+    "r2xsql-full %s — SQL interface for radare2 (embedded radare2 / libr)\n"
 #else
-    "r2sql %s — SQL interface for radare2 (pipe-only)\n"
+    "r2xsql %s — SQL interface for radare2 (pipe-only)\n"
 #endif
-    R2SQL_COPYRIGHT_STRING "\n\n"
-    "Usage: r2sql [options]\n"
+    R2XSQL_COPYRIGHT_STRING "\n\n"
+    "Usage: r2xsql [options]\n"
     "  -s <file>          open the given binary or r2 project\n"
     "  -q \"<sql>\"         run a single SQL statement (\".<cmd>\" runs a raw r2 command)\n"
     "  -f <file.sql>      run a SQL script file\n"
@@ -97,7 +97,7 @@ void print_help() {
     "      --token <tok>  require Bearer token on HTTP endpoints\n"
     "      --version      print version and exit\n"
     "  -h, --help         print this help and exit\n",
-    r2sql::version());
+    r2xsql::version());
 }
 
 int parse_args(int argc, char** argv, Args& a) {
@@ -105,7 +105,7 @@ int parse_args(int argc, char** argv, Args& a) {
     std::string_view k = argv[i];
     auto need = [&](const char* name) -> const char* {
       if (i + 1 >= argc) {
-        std::fprintf(stderr, "r2sql: %s requires a value\n", name);
+        std::fprintf(stderr, "r2xsql: %s requires a value\n", name);
         return nullptr;
       }
       return argv[++i];
@@ -146,37 +146,37 @@ int parse_args(int argc, char** argv, Args& a) {
     }
     if (k == "--bind")  { auto v = need("--bind");  if (!v) return 2; a.http_bind  = v; continue; }
     if (k == "--token") { auto v = need("--token"); if (!v) return 2; a.http_token = v; continue; }
-    std::fprintf(stderr, "r2sql: unknown argument: %.*s\n",
+    std::fprintf(stderr, "r2xsql: unknown argument: %.*s\n",
                  (int)k.size(), k.data());
     return 2;
   }
   return 0;
 }
 
-std::unique_ptr<r2sql::Backend> open_backend(const Args& a) {
-  r2sql::BackendError err;
-#if R2SQL_HAVE_LIBR
+std::unique_ptr<r2xsql::Backend> open_backend(const Args& a) {
+  r2xsql::BackendError err;
+#if R2XSQL_HAVE_LIBR
   if (!a.use_pipe) {
-    r2sql::LibrOpenOptions o;
+    r2xsql::LibrOpenOptions o;
     o.path = a.source;
     o.project = a.project;
     o.analyze = a.analyze;
     o.write = a.write;
-    auto be = r2sql::open_libr(o, &err);
+    auto be = r2xsql::open_libr(o, &err);
     if (be) return be;
-    std::fprintf(stderr, "r2sql: libr open failed (%s); falling back to r2pipe\n",
+    std::fprintf(stderr, "r2xsql: libr open failed (%s); falling back to r2pipe\n",
                  err.message.c_str());
   }
 #endif
-  r2sql::R2PipeOpenOptions o;
+  r2xsql::R2PipeOpenOptions o;
   o.path = a.source;
   o.project = a.project;
   o.r2_executable = a.r2_exe;
   o.analyze = a.analyze;
   o.write = a.write;
-  auto be = r2sql::open_r2pipe(o, &err);
+  auto be = r2xsql::open_r2pipe(o, &err);
   if (!be) {
-    std::fprintf(stderr, "r2sql: r2pipe open failed: %s\n", err.message.c_str());
+    std::fprintf(stderr, "r2xsql: r2pipe open failed: %s\n", err.message.c_str());
   }
   return be;
 }
@@ -211,7 +211,7 @@ bool is_raw_cmd(const std::string& line, std::string& out) {
   return true;
 }
 
-int run_raw(r2sql::Session& s, const std::string& cmd) {
+int run_raw(r2xsql::Session& s, const std::string& cmd) {
   std::string out = s.raw_cmd(cmd);
   if (!out.empty()) {
     std::fputs(out.c_str(), stdout);
@@ -220,7 +220,7 @@ int run_raw(r2sql::Session& s, const std::string& cmd) {
   return 0;
 }
 
-int run_sql(r2sql::Session& s, const std::string& sql) {
+int run_sql(r2xsql::Session& s, const std::string& sql) {
   std::string raw;
   if (is_raw_cmd(sql, raw)) return run_raw(s, raw);
   auto r = s.query(sql);
@@ -228,10 +228,10 @@ int run_sql(r2sql::Session& s, const std::string& sql) {
   return r.ok() ? 0 : 1;
 }
 
-int run_script(r2sql::Session& s, const std::string& path) {
+int run_script(r2xsql::Session& s, const std::string& path) {
   std::ifstream f(path);
   if (!f) {
-    std::fprintf(stderr, "r2sql: cannot open script %s\n", path.c_str());
+    std::fprintf(stderr, "r2xsql: cannot open script %s\n", path.c_str());
     return 1;
   }
   std::stringstream ss;
@@ -239,11 +239,11 @@ int run_script(r2sql::Session& s, const std::string& path) {
   return run_sql(s, ss.str());
 }
 
-int run_repl(r2sql::Session& s) {
-  std::printf("r2sql %s — interactive REPL. Type .quit to exit.\n"
-              R2SQL_COPYRIGHT_STRING "\n"
+int run_repl(r2xsql::Session& s) {
+  std::printf("r2xsql %s — interactive REPL. Type .quit to exit.\n"
+              R2XSQL_COPYRIGHT_STRING "\n"
               "Lines starting with '.' run a raw r2 command (e.g. .pdf @ entry0).\n",
-              r2sql::version());
+              r2xsql::version());
   std::string line;
   for (;;) {
     std::printf("sql> ");
@@ -271,7 +271,7 @@ extern "C" void on_signal(int /*sig*/) { g_shutdown_flag.store(true); }
 // rest of the xsql family (idasql/bnsql/ghidrasql). Going through run_script
 // gives multi-statement support and lets the thinclient's ?format=text|csv|tsv
 // re-render the result (it parses this envelope back via json_to_script_result).
-static std::string query_to_envelope(r2sql::Session& s, const std::string& body) {
+static std::string query_to_envelope(r2xsql::Session& s, const std::string& body) {
   auto exec = [&s](const std::string& sql, xsql::ScriptStatementResult& out) {
     auto r = s.query(sql);
     out.success = r.ok();
@@ -285,7 +285,7 @@ static std::string query_to_envelope(r2sql::Session& s, const std::string& body)
 
 static std::string build_help_text() {
   std::ostringstream out;
-  out << "r2sql HTTP REST API\n"
+  out << "r2xsql HTTP REST API\n"
       << "===================\n\n"
       << "SQL interface for radare2 sessions via HTTP.\n\n"
       << "Endpoints:\n"
@@ -307,9 +307,9 @@ static std::string build_help_text() {
   return out.str();
 }
 
-int run_http(r2sql::Session& s, const Args& a) {
+int run_http(r2xsql::Session& s, const Args& a) {
   xsql::thinclient::http_query_server_config cfg;
-  cfg.tool_name = "r2sql";
+  cfg.tool_name = "r2xsql";
   cfg.help_text = build_help_text();
   cfg.port = a.http_port;
   cfg.bind_address = a.http_bind;
@@ -328,18 +328,18 @@ int run_http(r2sql::Session& s, const Args& a) {
     return query_to_envelope(s, body);
   };
   cfg.status_fn = []() {
-    return xsql::json{{"mode", "cli"}, {"tool", "r2sql"}};
+    return xsql::json{{"mode", "cli"}, {"tool", "r2xsql"}};
   };
 
   xsql::thinclient::http_query_server server(cfg);
   int port = server.start();
   if (port < 0) {
-    std::fprintf(stderr, "r2sql: failed to start HTTP server on %s:%d\n",
+    std::fprintf(stderr, "r2xsql: failed to start HTTP server on %s:%d\n",
                  a.http_bind.c_str(), a.http_port);
     return 1;
   }
 
-  std::printf("r2sql HTTP server: http://%s:%d\n", a.http_bind.c_str(), port);
+  std::printf("r2xsql HTTP server: http://%s:%d\n", a.http_bind.c_str(), port);
   std::printf("Press Ctrl+C to stop.\n");
   std::fflush(stdout);
 
@@ -351,7 +351,7 @@ int run_http(r2sql::Session& s, const Args& a) {
   }
 
   server.stop();
-  std::printf("r2sql: HTTP server stopped.\n");
+  std::printf("r2xsql: HTTP server stopped.\n");
   return 0;
 }
 
@@ -359,13 +359,13 @@ int run_http(r2sql::Session& s, const Args& a) {
 // MCP server (SSE / JSON-RPC via fastmcpp)
 // ---------------------------------------------------------------------------
 
-#if R2SQL_HAS_MCP
-int run_mcp(r2sql::Session& s, const Args& a) {
-  r2sql::QueryCallback sql_cb = [&s](const std::string& sql) -> std::string {
+#if R2XSQL_HAS_MCP
+int run_mcp(r2xsql::Session& s, const Args& a) {
+  r2xsql::QueryCallback sql_cb = [&s](const std::string& sql) -> std::string {
     return query_to_envelope(s, sql);
   };
 
-  r2sql::McpServer mcp;
+  r2xsql::McpServer mcp;
   // use_queue=true so the SSE transport thread queues each request and
   // run_until_stopped() drains them serially on the main thread. This
   // keeps Ctrl+C responsive and serializes requests against each other.
@@ -373,12 +373,12 @@ int run_mcp(r2sql::Session& s, const Args& a) {
                        a.http_bind.empty() ? "127.0.0.1" : a.http_bind,
                        /*use_queue=*/true);
   if (port <= 0) {
-    std::fprintf(stderr, "r2sql: failed to start MCP server on %s:%d\n",
+    std::fprintf(stderr, "r2xsql: failed to start MCP server on %s:%d\n",
                  a.http_bind.c_str(), a.mcp_port);
     return 1;
   }
 
-  std::printf("%s", r2sql::format_mcp_info(port, mcp.bind_addr()).c_str());
+  std::printf("%s", r2xsql::format_mcp_info(port, mcp.bind_addr()).c_str());
   std::printf("Press Ctrl+C to stop.\n");
   std::fflush(stdout);
 
@@ -391,14 +391,14 @@ int run_mcp(r2sql::Session& s, const Args& a) {
   mcp.set_interrupt_check([]() { return g_shutdown_flag.load(); });
   mcp.run_until_stopped();
 
-  std::printf("r2sql: MCP server stopped.\n");
+  std::printf("r2xsql: MCP server stopped.\n");
   return 0;
 }
 #else
-int run_mcp(r2sql::Session&, const Args&) {
+int run_mcp(r2xsql::Session&, const Args&) {
   std::fprintf(stderr,
-               "r2sql: MCP support not compiled in. "
-               "Rebuild with -DR2SQL_WITH_MCP=ON.\n");
+               "r2xsql: MCP support not compiled in. "
+               "Rebuild with -DR2XSQL_WITH_MCP=ON.\n");
   return 1;
 }
 #endif
@@ -411,10 +411,10 @@ int main(int argc, char** argv) {
   if (rc) return rc;
   if (a.show_help)    { print_help(); return 0; }
   if (a.show_version) {
-#if R2SQL_HAVE_LIBR
-    std::printf("r2sql-full %s (embedded radare2 / libr)\n" R2SQL_COPYRIGHT_STRING "\n", r2sql::version());
+#if R2XSQL_HAVE_LIBR
+    std::printf("r2xsql-full %s (embedded radare2 / libr)\n" R2XSQL_COPYRIGHT_STRING "\n", r2xsql::version());
 #else
-    std::printf("r2sql %s (pipe-only)\n" R2SQL_COPYRIGHT_STRING "\n", r2sql::version());
+    std::printf("r2xsql %s (pipe-only)\n" R2XSQL_COPYRIGHT_STRING "\n", r2xsql::version());
 #endif
     return 0;
   }
@@ -427,7 +427,7 @@ int main(int argc, char** argv) {
 
   auto be = open_backend(a);
   if (!be) return 3;
-  r2sql::Session s(std::move(be));
+  r2xsql::Session s(std::move(be));
 
   if (!a.sql.empty())          return run_sql(s, a.sql);
   if (!a.script_file.empty())  return run_script(s, a.script_file);

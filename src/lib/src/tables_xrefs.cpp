@@ -6,8 +6,8 @@
 // xrefs — per-function enumeration via `afxj @ <fn>` for full scans, with
 // scoped `axtj @ <addr>` / `axfj @ <addr>` pushdown for point lookups.
 
-#include <r2sql/session.hpp>
-#include <r2sql/backend.hpp>
+#include <r2xsql/session.hpp>
+#include <r2xsql/backend.hpp>
 #include <xsql/vtable.hpp>
 
 #include "tables.hpp"
@@ -17,7 +17,7 @@
 #include <memory>
 #include <vector>
 
-namespace r2sql {
+namespace r2xsql {
 
 namespace {
 struct XrefRow {
@@ -151,5 +151,5 @@ void register_xrefs_table(Session& s) {
   s.db().register_and_create_cached_table(def);
 }
 
-}  // namespace r2sql
+}  // namespace r2xsql
 

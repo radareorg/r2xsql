@@ -6,15 +6,15 @@
 // comments — `CCj` for read; `CCu <text> @ <addr>` for UPDATE; `CC- @ <addr>`
 // for DELETE. Writes go through Backend so any backend (libr/r2pipe) works.
 
-#include <r2sql/session.hpp>
-#include <r2sql/backend.hpp>
+#include <r2xsql/session.hpp>
+#include <r2xsql/backend.hpp>
 #include <xsql/vtable.hpp>
 
 #include "tables.hpp"
 #include "json_utils.hpp"
 #include "table_utils.hpp"
 
-namespace r2sql {
+namespace r2xsql {
 
 namespace {
 struct CommentRow {
@@ -95,6 +95,6 @@ void register_comments_table(Session& s) {
   s.db().register_and_create_cached_table(def);
 }
 
-}  // namespace r2sql
+}  // namespace r2xsql
 
 

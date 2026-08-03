@@ -1,6 +1,6 @@
-# r2sql Agent Guide
+# r2xsql Agent Guide
 
-You are working with **r2sql**, a live SQL interface over a radare2 analysis
+You are working with **r2xsql**, a live SQL interface over a radare2 analysis
 session. Every table is a thin view onto radare2: a query runs the relevant
 radare2 command, parses its JSON, and returns rows. Prefer SQL for structured
 inspection; drop to raw radare2 only when the table surface cannot express the
@@ -20,7 +20,7 @@ functions / basic blocks / cross-references, finds strings and imports, and can
 decompile (with a plugin). Its native interface is a terse command language
 (`aflj`, `izj`, `axtj`, …) that emits JSON.
 
-r2sql turns that surface into SQL tables. Instead of memorizing radare2 command
+r2xsql turns that surface into SQL tables. Instead of memorizing radare2 command
 syntax and hand-parsing JSON, you write:
 
 ```sql
@@ -76,7 +76,7 @@ every function.
 ### Input and provenance
 
 Open a target with `-s <file>` (a binary, or a saved radare2 project). By
-default r2sql runs radare2's auto-analysis (`aaa`) at startup; pass
+default r2xsql runs radare2's auto-analysis (`aaa`) at startup; pass
 `--no-analyze` to skip it (faster open, but `funcs`/`xrefs` will be sparse until
 you analyze). Reusing a `--project` skips re-analysis entirely.
 
@@ -90,20 +90,20 @@ SELECT key, value FROM binary ORDER BY key;
 
 ```bash
 # one-shot query (multiple statements separated by ;)
-r2sql -s ./target.exe -q "SELECT name, size FROM funcs ORDER BY size DESC LIMIT 10"
+r2xsql -s ./target.exe -q "SELECT name, size FROM funcs ORDER BY size DESC LIMIT 10"
 
 # run a SQL script file
-r2sql -s ./target.exe -f ./audit.sql
+r2xsql -s ./target.exe -f ./audit.sql
 
 # interactive REPL
-r2sql -s ./target.exe -i
+r2xsql -s ./target.exe -i
 
 # HTTP server (query repeatedly with no per-query startup cost)
-r2sql -s ./target.exe --http 8080
+r2xsql -s ./target.exe --http 8080
 # then: curl -X POST http://127.0.0.1:8080/query --data "SELECT * FROM binary"
 
 # MCP server (for an MCP client / agent)
-r2sql -s ./target.exe --mcp 9876
+r2xsql -s ./target.exe --mcp 9876
 ```
 
 ### CLI options
@@ -128,23 +128,23 @@ r2sql -s ./target.exe --mcp 9876
 
 ### Two flavors, four backends
 
-r2sql ships as **two executables built from one codebase**:
+r2xsql ships as **two executables built from one codebase**:
 
 | Binary       | Backend     | Notes                                                       |
 |--------------|-------------|------------------------------------------------------------|
-| `r2sql`      | r2pipe      | **Pipe-only, always built.** Portable single binary; spawns `radare2` over a pipe. Needs `radare2` on `PATH`. Deploy anywhere. |
-| `r2sql-full` | libr        | **In-process** (links radare2's libraries). Fastest, no spawn. Run it from the radare2 install `bin/` directory so it finds the DLLs and the `share/` data dir. |
+| `r2xsql`      | r2pipe      | **Pipe-only, always built.** Portable single binary; spawns `radare2` over a pipe. Needs `radare2` on `PATH`. Deploy anywhere. |
+| `r2xsql-full` | libr        | **In-process** (links radare2's libraries). Fastest, no spawn. Run it from the radare2 install `bin/` directory so it finds the DLLs and the `share/` data dir. |
 
 Backend selection at a glance:
 
 | Backend       | When to use                                                       |
 |---------------|------------------------------------------------------------------|
-| **r2pipe**    | `r2sql` (or `--r2pipe`). Portable; spawns `radare2 -q0`. Always has the full data dir, since the spawned radare2 resolves its own `share/`. |
-| **libr**      | `r2sql-full`. In-process, fastest. Type DB / ordinal imports degrade unless run from radare2's `bin/`. |
-| **in-r2 plugin** | Already inside radare2: `L core_r2sql.dll` then `sql <SQL>`.   |
+| **r2pipe**    | `r2xsql` (or `--r2pipe`). Portable; spawns `radare2 -q0`. Always has the full data dir, since the spawned radare2 resolves its own `share/`. |
+| **libr**      | `r2xsql-full`. In-process, fastest. Type DB / ordinal imports degrade unless run from radare2's `bin/`. |
+| **in-r2 plugin** | Already inside radare2: `L core_r2xsql.dll` then `sql <SQL>`.   |
 | **mock**      | Embedding/testing: a canned `{cmd → response}` map, no live radare2. |
 
-Pick `r2sql` for portability, `r2sql-full` for throughput on large binaries or
+Pick `r2xsql` for portability, `r2xsql-full` for throughput on large binaries or
 many queries. Functionally the SQL surface is identical.
 
 ### REPL commands and raw passthrough
@@ -159,7 +159,7 @@ sql> .pdf @ entry0          -- raw radare2: disassemble the entry function
 sql> .quit
 ```
 
-The same `.`-prefix works with `-q` (`r2sql -s a.bin -q ".ij"`). Over HTTP, use
+The same `.`-prefix works with `-q` (`r2xsql -s a.bin -q ".ij"`). Over HTTP, use
 a body that begins with `.r2cmd ` (see *Server Modes*).
 
 ### Performance strategy
@@ -264,7 +264,7 @@ Key/value binary metadata — `(key TEXT, value TEXT, type TEXT)`, one row per
 fact, `type ∈ {string, hex, bool, int}`; the shape and canonical key names are
 shared across the tool family, and the `summary` row is emitted first. Carries
 radare2's raw bin-info fields (`arch`, `bits`, `bintype`, `os`, `baddr`,
-`endian`, `compiler`, `lang`, …) plus r2sql identity/entry/count keys AND
+`endian`, `compiler`, `lang`, …) plus r2xsql identity/entry/count keys AND
 canonical family synonyms of the raw facts. Counts are JSON-array lengths, so
 they match the corresponding tables exactly.
 
@@ -274,12 +274,12 @@ they match the corresponding tables exactly.
 | `value` | TEXT | string representation                        |
 | `type`  | TEXT | value type tag: string / hex / bool / int    |
 
-Notable keys: `r2sql_version`, `file`, `entry`, `entry_name`, `func_count`,
+Notable keys: `r2xsql_version`, `file`, `entry`, `entry_name`, `func_count`,
 `string_count`, `import_count`, `section_count`, `segment_count`,
 `symbol_count`, `summary`.
 
 Canonical family keys (same names on idasql/bnsql/ghidrasql; values alias the
-raw radare2 facts): `tool_name` (`r2sql`), `tool_version`, `processor` (=arch),
+raw radare2 facts): `tool_name` (`r2xsql`), `tool_version`, `processor` (=arch),
 `filetype` (=bintype), `image_base` (=baddr, hex), `entry_point` (=entry),
 `is_64bit`, `endianness`, `filename` (=file), and `min_addr`/`max_addr` derived
 from the section/segment maps (omitted when unmapped). `bits` doubles as the
@@ -702,18 +702,18 @@ Source `tk*` enriched with `tj` / `tsj` / `tuj`.
 | `format` | TEXT  | radare2 `pf` format string when applicable                       |
 
 `DELETE FROM types WHERE name = 'X'` ⇒ `t- X`. To **create** a type, use
-`r2sql_type_define('<one-line C decl>')` (a full declaration doesn't fit the
+`r2xsql_type_define('<one-line C decl>')` (a full declaration doesn't fit the
 row columns).
 
 ```sql
 SELECT name, kind, size FROM types WHERE kind = 'struct' ORDER BY size DESC LIMIT 20;
-SELECT r2sql_type_define('struct hdr { int magic; int size; char name[16]; }');
+SELECT r2xsql_type_define('struct hdr { int magic; int size; char name[16]; }');
 ```
 
 The full type set (e.g. the thousands of Windows API typedefs) lives in
 radare2's `share/fcnsign/types-*.sdb`. The **r2pipe** backend always loads it.
-The **libr** backend (`r2sql-full`) loads it only when run from radare2's `bin/`
-directory; otherwise `types` collapses to a few built-ins (r2sql warns).
+The **libr** backend (`r2xsql-full`) loads it only when run from radare2's `bin/`
+directory; otherwise `types` collapses to a few built-ins (r2xsql warns).
 
 #### `types_members` (read-only)
 Per-type `tsj` / `tuj` / `tej`.
@@ -807,7 +807,7 @@ Saving/opening is an action, not a row — use the scalar functions below.
 
 ## Writable Tables & Mutation (CRUD)
 
-r2sql exposes create/update/delete wherever radare2 has a write verb and the
+r2xsql exposes create/update/delete wherever radare2 has a write verb and the
 table is an editable annotation. Each affected row issues one radare2 command.
 
 | Table       | INSERT             | UPDATE                       | DELETE        |
@@ -817,8 +817,8 @@ table is an editable annotation. Each affected row issues one radare2 command.
 | `comments`  | `CCu base64:<b64> @ <addr>` | `text` ⇒ `CCu base64:<b64> @ <addr>` | `CC- @ <addr>` |
 | `bookmarks` | `f <name> @ <addr>` (bookmarks space) | `name` ⇒ `fr <old> <new>` | `f- @ <addr>` |
 | `locals`    | — | `name` ⇒ `afvn <new> <old>`; `type` ⇒ `afvt <name> <type>` | — |
-| `types`     | — (use `r2sql_type_define`) | —                  | `t- <name>`   |
-| `projects`  | — (use `r2sql_project_save`) | —                 | `P- <name>`   |
+| `types`     | — (use `r2xsql_type_define`) | —                  | `t- <name>`   |
+| `projects`  | — (use `r2xsql_project_save`) | —                 | `P- <name>`   |
 | `io_maps`   | `om $d <vaddr> <size> <paddr> <perm> <name>` (add region) | — | `om-<map_id>` (remove map) |
 | `runtime_settings` | —          | `value` ⇒ UPDATE (validated) | —       |
 
@@ -843,7 +843,7 @@ Rules and gotchas:
   keep each statement bounded.
 - **Persistence:** mutations live in the radare2 session and vanish on exit
   **unless** you opened with `-w` and saved (`--project NAME`, or
-  `r2sql_project_save` mid-session). See below.
+  `r2xsql_project_save` mid-session). See below.
 
 ```sql
 -- bulk annotate: mark every init-like function for review
@@ -859,29 +859,29 @@ Edits (renames, comments, flags, types) accumulate in the radare2 core and are
 written to disk only when a **project** is saved.
 
 ```sql
-SELECT r2sql_project_save('triage1');   -- Ps: save the session as a project, no exit
+SELECT r2xsql_project_save('triage1');   -- Ps: save the session as a project, no exit
 SELECT name FROM projects;              -- Plj: list saved projects
-SELECT r2sql_project_open('triage1');   -- P:  load a project mid-session
+SELECT r2xsql_project_open('triage1');   -- P:  load a project mid-session
 DELETE FROM projects WHERE name = 'x';  -- P-: delete a project on disk
 ```
 
 Two ways to persist:
 
-- **Mid-session:** `SELECT r2sql_project_save('name')` whenever you want.
+- **Mid-session:** `SELECT r2xsql_project_save('name')` whenever you want.
 - **On exit:** open with `-w --project NAME`; the session saves automatically
   when the process ends.
 
-Resume later with `--project NAME` (CLI) or `r2sql_project_open('NAME')`. Using
+Resume later with `--project NAME` (CLI) or `r2xsql_project_open('NAME')`. Using
 a project also skips re-analysis — the warm path for iterative work.
 
 ```bash
 # annotate and persist
-r2sql -w --project demo -s ./malware.exe -q "
+r2xsql -w --project demo -s ./malware.exe -q "
   UPDATE funcs    SET name = 'aes_init'    WHERE addr = 0x401000;
   UPDATE comments SET text = 'crypto init' WHERE addr = 0x401000;
 "
 # reopen — the rename + comment are still there
-r2sql --project demo -s ./malware.exe -q "
+r2xsql --project demo -s ./malware.exe -q "
   SELECT name FROM funcs WHERE addr = 0x401000;
 "
 ```
@@ -920,13 +920,13 @@ Only the `value` column is writable, and only for value settings;
 `INSERT`/`DELETE` are rejected.
 
 #### Timeout verbs (PRAGMA)
-The scoped-timeout stack is driven by the two imperative verbs — the only r2sql
+The scoped-timeout stack is driven by the two imperative verbs — the only r2xsql
 PRAGMAs. The stack is bounded at 64 entries.
 
 ```sql
-PRAGMA r2sql.timeout_push = 30000;      -- scope a longer timeout for one heavy query
+PRAGMA r2xsql.timeout_push = 30000;      -- scope a longer timeout for one heavy query
 -- ... run the heavy query ...
-PRAGMA r2sql.timeout_pop;               -- restore the prior timeout
+PRAGMA r2xsql.timeout_pop;               -- restore the prior timeout
 ```
 
 The `timeout_push` stack is bounded (64 entries) so a client cannot grow it
@@ -936,14 +936,14 @@ without limit.
 
 ## SQL Functions
 
-### r2sql-registered
+### r2xsql-registered
 
 | Function                       | Returns | Effect (radare2)                                     |
 |--------------------------------|---------|------------------------------------------------------|
 | `regexp(pattern, text)`        | INT     | ECMAScript-regex match; backs `text REGEXP 'pat'`    |
-| `r2sql_project_save('name')`   | TEXT    | save the session as a project — `Ps name`            |
-| `r2sql_project_open('name')`   | TEXT    | load a project into the session — `P name`           |
-| `r2sql_type_define('<C decl>')`| TEXT    | define a type from a one-line C decl — `td <decl>`   |
+| `r2xsql_project_save('name')`   | TEXT    | save the session as a project — `Ps name`            |
+| `r2xsql_project_open('name')`   | TEXT    | load a project into the session — `P name`           |
+| `r2xsql_type_define('<C decl>')`| TEXT    | define a type from a one-line C decl — `td <decl>`   |
 
 ```sql
 -- regex on names (the registered regexp())
@@ -1115,7 +1115,7 @@ SELECT text FROM comments WHERE text LIKE 'ESIL:%';
 
 ### Type reconstruction
 Browse `types` / `types_members`; define new ones with
-`r2sql_type_define('<C decl>')`; apply a type at an address with a raw command
+`r2xsql_type_define('<C decl>')`; apply a type at an address with a raw command
 (`.tl <TYPENAME> @ <addr>`).
 
 ---
@@ -1125,7 +1125,7 @@ Browse `types` / `types_members`; define new ones with
 When the table surface can't express the question, reach the engine directly:
 
 - **CLI `-q` / REPL:** a line beginning with `.` runs raw radare2 (the `.` is
-  stripped): `r2sql -s a.bin -q ".pdf @ entry0"`.
+  stripped): `r2xsql -s a.bin -q ".pdf @ entry0"`.
 - **HTTP:** `POST /query` with a body beginning `.r2cmd ` → `{"success":true,
   "output":"<raw output>"}`.
 - **In-r2 plugin:** you're already in the radare2 shell.
@@ -1141,8 +1141,8 @@ parsing, no pushdown. **You** parse the output.
 
 ### HTTP REST (recommended for repeated queries)
 ```bash
-r2sql -s ./target.exe --http 8080
-r2sql -s ./target.exe --http --bind 0.0.0.0 --token s3cret   # bind everywhere + auth
+r2xsql -s ./target.exe --http 8080
+r2xsql -s ./target.exe --http --bind 0.0.0.0 --token s3cret   # bind everywhere + auth
 ```
 `--http` with no port picks a random port in **8100–8999**.
 
@@ -1151,7 +1151,7 @@ r2sql -s ./target.exe --http --bind 0.0.0.0 --token s3cret   # bind everywhere +
 | `/`             | GET    | banner / welcome                                          |
 | `/help`         | GET    | embedded API help                                         |
 | `/query`        | POST   | body = SQL, or `.r2cmd <command>` for raw radare2         |
-| `/status`       | GET    | health check (`{"mode":"cli","tool":"r2sql"}`)            |
+| `/status`       | GET    | health check (`{"mode":"cli","tool":"r2xsql"}`)            |
 | `/shutdown`     | POST   | graceful stop                                             |
 
 Response envelope:
@@ -1170,13 +1170,13 @@ curl -X POST http://127.0.0.1:8080/query --data '.r2cmd ?V'   # raw radare2
 
 ### MCP (SSE / JSON-RPC)
 ```bash
-r2sql -s ./target.exe --mcp 9876        # or --mcp for a random port in 9000-9999
+r2xsql -s ./target.exe --mcp 9876        # or --mcp for a random port in 9000-9999
 ```
 Transport: `GET /sse` (event stream) + `POST /messages` (JSON-RPC). One tool:
 
 | Field | Value                                                     |
 |-------|-----------------------------------------------------------|
-| Name  | `r2sql_query`                                             |
+| Name  | `r2xsql_query`                                             |
 | Input | `{ "query": "<SQL string>" }` (required)                  |
 | Result| `content:[{type:"text", text:"<JSON envelope>"}]`         |
 
@@ -1185,7 +1185,7 @@ A failed SQL query is reported **in-band** (`success:false`), not as a
 transport error.
 
 ### In-r2 plugin
-After loading the plugin inside radare2 (`L core_r2sql.dll`):
+After loading the plugin inside radare2 (`L core_r2xsql.dll`):
 ```text
 sql <SQL>            run one query against the host RCore
 sql.http [port]      start / sql.http-  stop / sql.http?  status
@@ -1196,7 +1196,7 @@ sql.mcp  [port]      start / sql.mcp-   stop / sql.mcp?   status
 
 ## Decompiler Setup
 
-`pseudocode` exists only if a decompiler is installed. r2sql probes at startup in
+`pseudocode` exists only if a decompiler is installed. r2xsql probes at startup in
 order and uses the first that responds:
 
 | Probe   | Provided by            | Command issued     |
@@ -1270,7 +1270,7 @@ FROM xrefs x JOIN s ON x.to_addr = s.addr;
 | Find any named entity by pattern           | `grep WHERE pattern = '…'`                        |
 | Types / struct layout                      | `types` / `types_members`                        |
 | Rename / comment / flag / bookmark         | writable tables (`funcs`/`comments`/`flags`/`bookmarks`) |
-| Save / resume work                         | projects + `r2sql_project_save`/`_open`          |
+| Save / resume work                         | projects + `r2xsql_project_save`/`_open`          |
 | Something SQL can't express                | raw radare2 (`.`-prefix, `.r2cmd`, r2js)         |
 
 ---
@@ -1284,9 +1284,9 @@ FROM xrefs x JOIN s ON x.to_addr = s.addr;
 - **`funcs.size = 0`** for some thunks/externs — filter with `size > 0` when
   measuring real code.
 - **No `pseudocode` table:** no decompiler detected — install one (see above).
-- **Sparse `types` / unresolved ordinal imports** with `r2sql-full`: it isn't
+- **Sparse `types` / unresolved ordinal imports** with `r2xsql-full`: it isn't
   running from radare2's `bin/` (the `share/` data dir isn't found). Run it from
-  the radare2 install directory, or use the pipe-only `r2sql` (which always has
+  the radare2 install directory, or use the pipe-only `r2xsql` (which always has
   the full data dir).
 - **Write didn't stick** after exit: you didn't open with `-w` / didn't save a
-  project. Use `-w --project NAME` or `r2sql_project_save`.
+  project. Use `-w --project NAME` or `r2xsql_project_save`.

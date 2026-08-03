@@ -15,8 +15,8 @@
 //   array_size  INT64 — array element count (1 if not an array; 0 for enum constants)
 //   value       INT64 — enum constant value (0 for struct/union fields)
 
-#include <r2sql/session.hpp>
-#include <r2sql/backend.hpp>
+#include <r2xsql/session.hpp>
+#include <r2xsql/backend.hpp>
 #include <xsql/vtable.hpp>
 
 #include "tables.hpp"
@@ -27,7 +27,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace r2sql {
+namespace r2xsql {
 
 namespace {
 
@@ -103,4 +103,4 @@ void register_types_members_table(Session& s) {
   (void)s.db().register_and_create_cached_table(def);
 }
 
-}  // namespace r2sql
+}  // namespace r2xsql

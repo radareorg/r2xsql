@@ -4,12 +4,12 @@
 // This file is licensed under the Human-Origin Source License v1.0.
 // See LICENSE.
 // LibrBackend — in-process wrapper around r_core, compiled when
-// R2SQL_HAVE_LIBR is set. In a pipe-only build (no radare2 at configure time)
-// R2SQL_HAVE_LIBR is unset and open_libr() returns nullptr.
+// R2XSQL_HAVE_LIBR is set. In a pipe-only build (no radare2 at configure time)
+// R2XSQL_HAVE_LIBR is unset and open_libr() returns nullptr.
 
-#include <r2sql/backend.hpp>
+#include <r2xsql/backend.hpp>
 
-#if R2SQL_HAVE_LIBR
+#if R2XSQL_HAVE_LIBR
 #  include <r_core.h>
 #  include <r_userconf.h>
 #  include <r_util.h>
@@ -21,9 +21,9 @@
 #include <mutex>
 #include <string>
 
-namespace r2sql {
+namespace r2xsql {
 
-#if R2SQL_HAVE_LIBR
+#if R2XSQL_HAVE_LIBR
 
 // Mirror r2's own data-dir resolution (cbin.c builds <r_sys_prefix>/<R2_SDB_FCNSIGN>
 // for the type DB) so we can detect, before the bin loads, whether this binary
@@ -91,11 +91,11 @@ class LibrBackend : public Backend {
       LibrDataDirStatus dd = libr_data_dir_status();
       if (!dd.found) {
         std::fprintf(stderr,
-            "r2sql-full: radare2 data dir not found (looked in %s).\n"
+            "r2xsql-full: radare2 data dir not found (looked in %s).\n"
             "       The 'types' table and ordinal-imported symbols will be "
             "incomplete.\n"
-            "       Run r2sql-full from the radare2 install bin/ directory (next "
-            "to radare2.exe), or use the pipe-only r2sql.\n",
+            "       Run r2xsql-full from the radare2 install bin/ directory (next "
+            "to radare2.exe), or use the pipe-only r2xsql.\n",
             dd.probe_path.empty() ? "<unknown>" : dd.probe_path.c_str());
       }
       r_core_bin_load(core, opts.path.c_str(), UT64_MAX);
@@ -148,16 +148,16 @@ std::unique_ptr<Backend> open_libr(const LibrOpenOptions& opts, BackendError* er
 }
 
 // Used by the in-r2 plugin to wrap the host's RCore* without taking ownership.
-// Declared in <r2sql/backend.hpp>; plain C++ linkage (see the note there on why
+// Declared in <r2xsql/backend.hpp>; plain C++ linkage (see the note there on why
 // no extern "C").
 std::unique_ptr<Backend> make_libr_backend_from_core(void* core_ptr) {
   return std::unique_ptr<Backend>(new LibrBackend(static_cast<RCore*>(core_ptr), /*owns=*/false));
 }
 
-#else  // R2SQL_HAVE_LIBR == 0
+#else  // R2XSQL_HAVE_LIBR == 0
 
 std::unique_ptr<Backend> open_libr(const LibrOpenOptions&, BackendError* err) {
-  if (err) err->message = "r2sql was built without libr support (R2SQL_HAVE_LIBR=0)";
+  if (err) err->message = "r2xsql was built without libr support (R2XSQL_HAVE_LIBR=0)";
   return nullptr;
 }
 
@@ -171,4 +171,4 @@ std::unique_ptr<Backend> make_libr_backend_from_core(void*) { return nullptr; }
 
 #endif
 
-}  // namespace r2sql
+}  // namespace r2xsql

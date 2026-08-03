@@ -3,9 +3,9 @@
 //
 // This file is licensed under the Human-Origin Source License v1.0.
 // See LICENSE.
-#include <r2sql/backend_mock.hpp>
+#include <r2xsql/backend_mock.hpp>
 
-namespace r2sql {
+namespace r2xsql {
 
 MockBackend::MockBackend() = default;
 
@@ -61,4 +61,4 @@ std::unique_ptr<Backend> make_mock_backend() {
   return std::make_unique<MockBackend>();
 }
 
-}  // namespace r2sql
+}  // namespace r2xsql

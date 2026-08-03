@@ -3,8 +3,8 @@
 //
 // This file is licensed under the Human-Origin Source License v1.0.
 // See LICENSE.
-#include <r2sql/session.hpp>
-#include <r2sql/backend.hpp>
+#include <r2xsql/session.hpp>
+#include <r2xsql/backend.hpp>
 
 #include <xsql/functions.hpp>
 
@@ -14,7 +14,7 @@
 #include "json_utils.hpp"
 #include "table_utils.hpp"
 
-namespace r2sql {
+namespace r2xsql {
 
 Session::Session(std::unique_ptr<Backend> backend) : backend_(std::move(backend)) {
   db_.open(":memory:");
@@ -29,7 +29,7 @@ xsql::Result Session::query(std::string_view sql) {
   std::lock_guard<std::mutex> lock(query_mu_);
   std::string s(sql);
 
-  // Intercept `PRAGMA r2sql.*` before handing SQL to SQLite: these are runtime
+  // Intercept `PRAGMA r2xsql.*` before handing SQL to SQLite: these are runtime
   // controls (query timeout, hints, the timeout stack), not table queries.
   xsql::Result pragma;
   if (handle_runtime_pragma_(s.c_str(), pragma)) {
@@ -96,20 +96,20 @@ std::string declared_type_name(const std::string& declaration) {
 }  // namespace
 
 bool Session::handle_runtime_pragma_(const char* sql, xsql::Result& out) {
-  const auto request = xsql::runtime::parse_runtime_pragma(sql, "r2sql");
+  const auto request = xsql::runtime::parse_runtime_pragma(sql, "r2xsql");
   if (!request.matched) return false;
 
   // Clean break: only the two imperative timeout verbs remain PRAGMAs. Value
   // settings are read via SELECT and changed via UPDATE runtime_settings.
   if (request.key == "timeout_push" || request.key == "timeout_pop") {
     const auto common = xsql::runtime::handle_common_runtime_pragma(
-        request, "r2sql", runtime_settings_.common_settings());
+        request, "r2xsql", runtime_settings_.common_settings());
     out = common.success ? make_pragma_result(common.name, common.value)
                          : make_pragma_error(common.error);
     return true;
   }
 
-  out = make_pragma_error(xsql::runtime::unknown_runtime_pragma_error("r2sql"));
+  out = make_pragma_error(xsql::runtime::unknown_runtime_pragma_error("r2xsql"));
   return true;
 }
 
@@ -177,7 +177,7 @@ void Session::register_functions_() {
   // query_mu_), so they call the backend directly rather than Session::raw_cmd
   // (which would re-acquire the same lock and deadlock).
   Backend* be = backend_.get();
-  db_.register_function("r2sql_project_save", 1, xsql::ScalarFn(
+  db_.register_function("r2xsql_project_save", 1, xsql::ScalarFn(
     [be](xsql::FunctionContext& ctx, int argc, xsql::FunctionArg* argv) {
       if (argc < 1 || argv[0].is_null()) { ctx.result_text("error: project name required"); return; }
       std::string name = argv[0].as_text();
@@ -189,7 +189,7 @@ void Session::register_functions_() {
       }
       ctx.result_text("saved: " + name);
     }));
-  db_.register_function("r2sql_project_open", 1, xsql::ScalarFn(
+  db_.register_function("r2xsql_project_open", 1, xsql::ScalarFn(
     [be](xsql::FunctionContext& ctx, int argc, xsql::FunctionArg* argv) {
       if (argc < 1 || argv[0].is_null()) { ctx.result_text("error: project name required"); return; }
       std::string name = argv[0].as_text();
@@ -204,7 +204,7 @@ void Session::register_functions_() {
   // Define a type from a one-line C declaration (`td "<decl>"`), the
   // create-counterpart to DELETE FROM types (a struct decl doesn't fit the
   // types table's columns).
-  db_.register_function("r2sql_type_define", 1, xsql::ScalarFn(
+  db_.register_function("r2xsql_type_define", 1, xsql::ScalarFn(
     [be](xsql::FunctionContext& ctx, int argc, xsql::FunctionArg* argv) {
       if (argc < 1 || argv[0].is_null()) { ctx.result_text("error: C declaration required"); return; }
       std::string decl = argv[0].as_text();
@@ -257,4 +257,4 @@ void Session::detect_decompiler_() {
   }
 }
 
-}  // namespace r2sql
+}  // namespace r2xsql

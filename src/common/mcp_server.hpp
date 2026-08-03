@@ -7,10 +7,10 @@
 #pragma once
 
 /**
- * mcp_server.hpp - MCP server wrapper for r2sql
+ * mcp_server.hpp - MCP server wrapper for r2xsql
  *
- * r2sql::McpServer - SSE-based MCP server exposing a single
- * `r2sql_query` tool that runs SQL against the host radare2 session.
+ * r2xsql::McpServer - SSE-based MCP server exposing a single
+ * `r2xsql_query` tool that runs SQL against the host radare2 session.
  *
  * Thread-safe via a command queue pattern. Tool handlers either invoke
  * the query callback directly (use_queue=false, CLI mode) or queue
@@ -19,7 +19,7 @@
  * `sql ...` calls from the r2 prompt).
  *
  * Queue/timeout behavior uses fixed constants (defaults are good enough
- * until r2sql grows its own settings layer).
+ * until r2xsql grows its own settings layer).
  */
 
 #include <atomic>
@@ -30,7 +30,7 @@
 #include <mutex>
 #include <string>
 
-namespace r2sql {
+namespace r2xsql {
 
 // SQL callback for handling requests.
 using QueryCallback = std::function<std::string(const std::string& sql)>;
@@ -154,4 +154,4 @@ std::string format_mcp_info(int port, const std::string& bind_addr);
 std::string format_mcp_status(int port, bool running);
 std::string format_mcp_status(int port, bool running, const std::string& bind_addr);
 
-} // namespace r2sql
+} // namespace r2xsql

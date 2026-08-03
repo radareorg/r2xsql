@@ -8,7 +8,7 @@
 // The r2 -q0 protocol: write a command terminated by \n. Read response
 // until a NUL (\0) byte is encountered (NUL terminates each reply).
 
-#include <r2sql/backend.hpp>
+#include <r2xsql/backend.hpp>
 
 #include <cstdlib>
 #include <cstring>
@@ -36,7 +36,7 @@
 extern char** environ;
 #endif
 
-namespace r2sql {
+namespace r2xsql {
 
 namespace {
 
@@ -412,4 +412,4 @@ std::unique_ptr<Backend> open_r2pipe(const R2PipeOpenOptions& opts, BackendError
   return b;
 }
 
-}  // namespace r2sql
+}  // namespace r2xsql

@@ -21,7 +21,7 @@
 #include <sstream>
 #include <unordered_map>
 
-namespace r2sql {
+namespace r2xsql {
 
 // Queue / timeout knobs (fixed constants).
 static constexpr size_t kMcpDefaultMaxQueue = 64;
@@ -153,7 +153,7 @@ int McpServer::start(int port, QueryCallback query_cb,
     // Declaring an outputSchema without returning structuredContent violates
     // the MCP spec and causes the official Python SDK to reject responses.
     fastmcpp::tools::Tool sql_query_tool{
-        "r2sql_query",
+        "r2xsql_query",
         query_input_schema,
         Json(),
         [this](const Json& args) -> Json {
@@ -202,11 +202,11 @@ int McpServer::start(int port, QueryCallback query_cb,
     impl_->tool_manager.register_tool(sql_query_tool);
 
     std::unordered_map<std::string, std::string> descriptions = {
-        {"r2sql_query", "Execute a SQL query or semicolon-separated script against the radare2 session and return results"}
+        {"r2xsql_query", "Execute a SQL query or semicolon-separated script against the radare2 session and return results"}
     };
 
     auto handler = fastmcpp::mcp::make_mcp_handler(
-        "r2sql",
+        "r2xsql",
         "1.0.0",
         impl_->tool_manager,
         descriptions
@@ -220,7 +220,7 @@ int McpServer::start(int port, QueryCallback query_cb,
         "/messages"
     );
 
-    // Mark the r2sql-side server state before exposing the SSE endpoint. The
+    // Mark the r2xsql-side server state before exposing the SSE endpoint. The
     // transport can accept a client immediately after start(), before this
     // method returns to the CLI loop that drains queued commands.
     running_.store(true);
@@ -350,7 +350,7 @@ std::string format_mcp_info(int port) {
 
 std::string format_mcp_info(int port, const std::string& bind_addr) {
     const std::string rendered_host = xsql::thinclient::format_url_host(bind_addr);
-    return "r2sql MCP server: http://" + rendered_host + ":" + std::to_string(port) + "/sse\n";
+    return "r2xsql MCP server: http://" + rendered_host + ":" + std::to_string(port) + "/sse\n";
 }
 
 std::string format_mcp_status(int port, bool running) {
@@ -370,4 +370,4 @@ std::string format_mcp_status(int port, bool running, const std::string& bind_ad
     return ss.str();
 }
 
-} // namespace r2sql
+} // namespace r2xsql

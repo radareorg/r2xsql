@@ -21,7 +21,7 @@
 
 #include <nlohmann/json.hpp>
 
-namespace r2sql {
+namespace r2xsql {
 
 struct BackendError {
   std::string message;
@@ -59,16 +59,16 @@ struct LibrOpenOptions {
   bool write   = false;   // open in -w mode; on close, saves the project if `project` is set
 };
 
-// Returns nullptr if r2sql was built without libr support (R2SQL_HAVE_LIBR=0)
+// Returns nullptr if r2xsql was built without libr support (R2XSQL_HAVE_LIBR=0)
 // or if the open fails. *err is populated on failure.
 std::unique_ptr<Backend> open_libr(const LibrOpenOptions& opts, BackendError* err = nullptr);
 
 // Wrap an existing radare2 core (an `RCore*`, passed as `void*` so this public
 // header stays free of <r_core.h>) in a Backend WITHOUT taking ownership: the
 // returned Backend never frees the core. This is the in-process entry used by
-// the core_r2sql plugin to share the host's RCore. The caller retains ownership
+// the core_r2xsql plugin to share the host's RCore. The caller retains ownership
 // and must keep the core alive for the Backend's lifetime. Returns nullptr in a
-// pipe-only build (R2SQL_HAVE_LIBR=0).
+// pipe-only build (R2XSQL_HAVE_LIBR=0).
 //
 // (Declared with C++ linkage and resolved at link time by its sole caller — no
 // `extern "C"` is needed since both the definition and the caller are C++ TUs
@@ -95,7 +95,7 @@ std::unique_ptr<Backend> open_r2pipe(const R2PipeOpenOptions& opts, BackendError
 //
 // The in-process libr backend asks radare2 to locate its data files
 // (share/fcnsign/types-*.sdb for the type DB, share/format/dll/*.sdb for
-// ordinal imports) relative to the *running executable*. When the r2sql binary
+// ordinal imports) relative to the *running executable*. When the r2xsql binary
 // is not deployed alongside radare2.exe in the install prefix's bin/ directory,
 // that lookup lands on a nonexistent path: the `types` table degrades to a
 // handful of built-ins and ordinal imports stay unresolved (r2 prints a flood
@@ -107,8 +107,8 @@ std::unique_ptr<Backend> open_r2pipe(const R2PipeOpenOptions& opts, BackendError
 // and `probe_path` is empty (not applicable).
 struct LibrDataDirStatus {
   std::string probe_path;  // the share/fcnsign directory r2 will probe
-  bool found = true;       // false => r2sql is not deployed next to radare2.exe
+  bool found = true;       // false => r2xsql is not deployed next to radare2.exe
 };
 LibrDataDirStatus libr_data_dir_status();
 
-}  // namespace r2sql
+}  // namespace r2xsql
