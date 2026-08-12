@@ -1,0 +1,16 @@
+# libxsql -- r2xsql's SQL core (SQLite virtual-table framework + vendored
+# sqlite3/nlohmann/httplib). It ships no meson.build of its own (CMake-native),
+# so the packagefiles/ overlay below supplies one for the meson build path.
+#
+# In the monorepo, prefer the editable sibling checkout instead of this fetch by
+# pointing meson at it:  meson setup build-meson -Dlibxsql:... (or drop a
+# subprojects/libxsql/ checkout in place; meson uses a present directory over the
+# wrap). For a standalone/public build this fetches the same source CMake does.
+[wrap-git]
+url = https://github.com/0xeb/libxsql.git
+revision = main
+depth = 1
+patch_directory = libxsql
+
+[provide]
+libxsql = xsql_dep

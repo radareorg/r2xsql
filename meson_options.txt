@@ -1,0 +1,5 @@
+# Install core_r2xsql into the per-user plugin dir (R2_USER_PLUGINS, no root)
+# instead of the system-wide one (R2_LIBR_PLUGINS). Mirrors the Makefile's
+# `make user-install` target.
+option('r2_user_plugins', type: 'boolean', value: false,
+  description: 'Install into the per-user radare2 plugin dir (no root)')

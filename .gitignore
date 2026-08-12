@@ -1,0 +1,55 @@
+# Build output
+build/
+build-*/
+out/
+cmake-build-*/
+
+# meson: fetched subprojects + cache (keep the tracked *.wrap and packagefiles/)
+/subprojects/libxsql/
+/subprojects/packagecache/
+
+# CMake artifacts
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+_deps/
+*.cmake.in.cmake
+
+# IDE/editor
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.sdf
+*.opensdf
+*.VC.db
+*.VC.opendb
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Compiled artifacts
+*.obj
+*.lib
+*.dll
+*.exe
+*.pdb
+*.ilk
+*.exp
+*.idb
+*.so
+*.dylib
+*.a
+*.o
+
+# r2 artifacts that may leak in
+*.r2_history
+.r2_history
+
+# Local notes / scratch
+scratch/
+*.local.*

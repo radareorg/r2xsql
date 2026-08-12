@@ -1,0 +1,248 @@
+name: build
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*", "V*"]
+  pull_request:
+    branches: ["**"]
+  workflow_dispatch:
+
+# Default to read-only; only the tag-only release job needs write.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# radare2 is not a submodule of r2xsql; CI builds it from source to an install
+# prefix and points r2xsql at it with -DRadare2_ROOT. ONE configure with
+# -DR2XSQL_BUILD_FULL=ON yields both flavors, packaged as two release artifacts:
+#   * overlay   — bin/r2xsql-full[.exe] (in-process libr) + the in-r2 plugin laid
+#                 out under r2's own plugin dir, so the zip is extracted ON TOP
+#                 OF a radare2 install prefix (drop-in next to radare2[.exe]).
+#   * pipe-only — the self-contained r2xsql[.exe] (no r_*.dll; always built) that
+#                 only needs radare2[.exe] on PATH at runtime.
+# CI builds the public artifacts only (library, CLIs, in-r2 plugin).
+env:
+  R2_REF: "94949e8122e8d8031c62436011d0106875f8da1a"  # 6.1.6-135 (builds 6.1.7)
+
+jobs:
+  # ============================================================================
+  # Linux: pipe r2xsql + full r2xsql-full + plugin (one configure)
+  # ============================================================================
+  build-linux:
+    name: Build (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install meson + ninja
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build python3-pip pkg-config zip
+          pip3 install --user meson
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Build radare2 -> prefix
+        run: |
+          # Fetch exactly the pinned commit; fail the job if it is unavailable
+          # (no silent fallback to a moving default branch).
+          git init r2src
+          git -C r2src remote add origin https://github.com/radareorg/radare2
+          git -C r2src fetch --depth 1 origin "$R2_REF"
+          git -C r2src checkout --detach FETCH_HEAD
+          meson setup r2src/b r2src --prefix="$GITHUB_WORKSPACE/r2prefix" \
+            --buildtype=release -Dsdb_cgen=false
+          ninja -C r2src/b
+          ninja -C r2src/b install
+
+      - name: Configure + build (pipe r2xsql + full r2xsql-full + plugin)
+        run: |
+          # One configure yields both flavors: the always-on pipe-only r2xsql and
+          # (via R2XSQL_BUILD_FULL) the in-process r2xsql-full + core_r2xsql plugin.
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+            -DR2XSQL_BUILD_FULL=ON -DRadare2_ROOT="$GITHUB_WORKSPACE/r2prefix"
+          cmake --build build --config Release
+
+      - name: Stage artifacts
+        shell: bash
+        run: bash .github/scripts/stage_artifacts.sh
+
+      - name: Upload overlay artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: r2xsql-linux-overlay
+          path: dist/overlay/
+          if-no-files-found: error
+
+      - name: Upload pipe-only artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: r2xsql-linux-pipe-only
+          path: dist/pipe/
+          if-no-files-found: error
+
+  # ============================================================================
+  # Windows: pipe r2xsql + full r2xsql-full + plugin (one configure)
+  # ============================================================================
+  build-windows:
+    name: Build (Windows)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up MSVC dev environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
+
+      # Git-for-Windows ships a GNU coreutils link.exe in /usr/bin that shadows
+      # MSVC's linker on the Git-Bash PATH, so meson aborts radare2's configure
+      # with "Found GNU link.exe instead of MSVC link.exe". Removing it (the
+      # filesystem change persists for the whole job) lets both the meson radare2
+      # build and the cmake/ninja r2xsql build below find MSVC's real link.exe.
+      - name: Remove GNU link.exe so MSVC link.exe wins
+        shell: bash
+        run: rm -f /usr/bin/link /usr/bin/link.exe
+
+      - name: Install meson + ninja
+        shell: bash
+        run: pip install meson ninja
+
+      - name: Build radare2 -> prefix
+        shell: bash
+        run: |
+          git init r2src
+          git -C r2src remote add origin https://github.com/radareorg/radare2
+          git -C r2src fetch --depth 1 origin "$R2_REF"
+          git -C r2src checkout --detach FETCH_HEAD
+          # radare2's libr/util/arena.c uses C11 `_Static_assert`, but radare2's
+          # meson sets no c_std and MSVC's default C mode doesn't recognize that
+          # keyword ("syntax error: missing ')' before 'sizeof'"). Request C11 so
+          # meson passes /std:c11 to cl. (Windows job only; Linux/macOS keep the
+          # compiler default — gcc/clang already accept _Static_assert.)
+          meson setup r2src/b r2src --prefix="$GITHUB_WORKSPACE/r2prefix" \
+            --buildtype=release -Dsdb_cgen=false -Dc_std=c11
+          ninja -C r2src/b
+          ninja -C r2src/b install
+
+      - name: Configure + build (pipe r2xsql + full r2xsql-full + plugin)
+        shell: bash
+        run: |
+          # One configure yields both flavors: the always-on pipe-only r2xsql and
+          # (via R2XSQL_BUILD_FULL) the in-process r2xsql-full + core_r2xsql plugin.
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DR2XSQL_BUILD_FULL=ON -DRadare2_ROOT="$GITHUB_WORKSPACE/r2prefix"
+          cmake --build build --config Release
+
+      - name: Stage artifacts
+        shell: bash
+        run: bash .github/scripts/stage_artifacts.sh
+
+      - name: Upload overlay artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: r2xsql-windows-overlay
+          path: dist/overlay/
+          if-no-files-found: error
+
+      - name: Upload pipe-only artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: r2xsql-windows-pipe-only
+          path: dist/pipe/
+          if-no-files-found: error
+
+  # ============================================================================
+  # macOS (Apple Silicon): pipe r2xsql + full r2xsql-full + plugin (one configure)
+  # ============================================================================
+  build-macos:
+    name: Build (macOS)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install meson + ninja
+        run: brew install meson ninja pkg-config
+
+      - name: Build radare2 -> prefix
+        run: |
+          # Fetch exactly the pinned commit; fail the job if it is unavailable
+          # (no silent fallback to a moving default branch).
+          git init r2src
+          git -C r2src remote add origin https://github.com/radareorg/radare2
+          git -C r2src fetch --depth 1 origin "$R2_REF"
+          git -C r2src checkout --detach FETCH_HEAD
+          meson setup r2src/b r2src --prefix="$GITHUB_WORKSPACE/r2prefix" \
+            --buildtype=release -Dsdb_cgen=false
+          ninja -C r2src/b
+          ninja -C r2src/b install
+
+      - name: Configure + build (pipe r2xsql + full r2xsql-full + plugin)
+        run: |
+          # One configure yields both flavors: the always-on pipe-only r2xsql and
+          # (via R2XSQL_BUILD_FULL) the in-process r2xsql-full + core_r2xsql plugin.
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+            -DR2XSQL_BUILD_FULL=ON -DRadare2_ROOT="$GITHUB_WORKSPACE/r2prefix"
+          cmake --build build --config Release
+
+      - name: Stage artifacts
+        shell: bash
+        run: bash .github/scripts/stage_artifacts.sh
+
+      - name: Upload overlay artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: r2xsql-macos-overlay
+          path: dist/overlay/
+          if-no-files-found: error
+
+      - name: Upload pipe-only artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: r2xsql-macos-pipe-only
+          path: dist/pipe/
+          if-no-files-found: error
+
+  # ============================================================================
+  # Release — zip each artifact tree (zip root = the deployable layout) and
+  # attach. Overlay zips extract on top of a radare2 install prefix.
+  # ============================================================================
+  publish-release:
+    name: Publish Release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [build-linux, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # create the GitHub Release
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Zip artifacts
+        run: |
+          cd artifacts
+          for d in */; do
+            name="${d%/}"
+            ( cd "$name" && zip -r "$GITHUB_WORKSPACE/${name}.zip" . )
+          done
+          ls -la "$GITHUB_WORKSPACE"/*.zip
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            r2xsql-linux-overlay.zip
+            r2xsql-linux-pipe-only.zip
+            r2xsql-windows-overlay.zip
+            r2xsql-windows-pipe-only.zip
+            r2xsql-macos-overlay.zip
+            r2xsql-macos-pipe-only.zip
+          generate_release_notes: true
