@@ -84,10 +84,16 @@ OBJS=$(SQLITE_OBJ) $(XSQL_OBJS) $(R2XSQL_OBJS) $(PLUGIN_OBJ)
 
 all: $(PLUGIN)
 
+-include $(BUILD)/libxsql.mk
+
 # libxsql fetch (only if the sibling is absent and we redirected into build-make)
 $(LIBXSQL_DIR)/CMakeLists.txt:
 	@echo "libxsql not found at ../libxsql -- cloning $(LIBXSQL_URL)"
 	git clone --depth 1 $(LIBXSQL_URL) $(LIBXSQL_DIR)
+
+$(BUILD)/libxsql.mk: $(LIBXSQL_DIR)/CMakeLists.txt
+	@mkdir -p $(dir $@)
+	@touch $@
 
 $(BUILD)/obj/sqlite/sqlite3.o: $(LIBXSQL_DIR)/external/sqlite/sqlite3.c | $(LIBXSQL_DIR)/CMakeLists.txt
 	@mkdir -p $(dir $@)
@@ -128,11 +134,10 @@ user-install:
 user-uninstall:
 	$(MAKE) uninstall PLUGDIR="$(R2_USER_PLUGINS)"
 
-# Smoke test: load the freshly built plugin from build-make/ and run one query.
-# R2_LIBR_PLUGINS is prepended via R2_RCFILE-free -N so only our plugin path is added.
+# Smoke test: load the freshly built plugin and run one query.
 test: $(PLUGIN)
 	@echo "=== loading core_r2xsql and running a SQL query ==="
-	R2_PLUGIN_PATH="$(CWD)/$(BUILD)" $(R2) -e cfg.plugins=true -qc 'aa; sql SELECT count(*) AS n FROM funcs' -- /bin/ls
+	$(R2) -i "$(CWD)/$(PLUGIN)" -qc 'aa; sql SELECT count(*) AS n FROM funcs' -- /bin/ls
 
 clean:
 	rm -rf $(BUILD)/obj $(PLUGIN)
