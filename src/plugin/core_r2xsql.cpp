@@ -11,10 +11,12 @@
 //
 //   sql                  print help
 //   sql <SQL>            execute one statement
-//   sql.<SQL>            execute (legacy/discoverable shortcut)
-//   sql.?                help
+//   sql?                 print top-level help
+//   sql.?                list sql.* subcommands
+//   sql.tables           list available tables
+//   sql.views            list available views
 //   sql.http [port]      start/stop/status the HTTP REST server
-//   sql.mcp  [port]      start/stop/status the MCP server (when R2XSQL_HAS_MCP)
+//   sql.mcp  [port]      start/stop/status the MCP server
 //
 // The plugin wraps the host RCore* with libr2xsql's LibrBackend (no
 // ownership) and shares a single Session across calls so SQLite caches
@@ -39,7 +41,9 @@
 
 #include <xsql/json.hpp>
 #include <xsql/query_script.hpp>
+#if defined(XSQL_HAS_THINCLIENT)
 #include <xsql/thinclient/http_query_server.hpp>
+#endif
 
 #if R2XSQL_HAS_MCP
 #include "../common/mcp_server.hpp"
@@ -54,9 +58,11 @@ struct PluginState {
   std::unique_ptr<r2xsql::Session> session;
   RCore* bound_core = nullptr;
   std::mutex mu;
+#if defined(XSQL_HAS_THINCLIENT)
   std::unique_ptr<xsql::thinclient::http_query_server> http;
   int http_port = 0;
   std::string http_bind;
+#endif
 #if R2XSQL_HAS_MCP
   std::unique_ptr<r2xsql::McpServer> mcp;
   int mcp_port = 0;
@@ -74,37 +80,74 @@ void ensure_session(RCore* core) {
   g_state.bound_core = core;
 }
 
-void print_help(RCore* core) {
-  r_cons_println(
-      core->cons,
-      "Usage: sql <SQL>          execute a single SQL statement\n"
-      "       sql.<SQL>          shorthand form (same as `sql <SQL>`)\n"
-      "       sql.?              this help\n"
-      "       sql                this help\n"
-      "\n"
-      "HTTP REST server:\n"
-      "       sql.http [port]    start HTTP server (default: random 8100-8999)\n"
-      "       sql.http-          stop HTTP server\n"
-      "       sql.http?          print HTTP server status\n"
-#if R2XSQL_HAS_MCP
-      "\n"
-      "MCP server (SSE/JSON-RPC, fastmcpp):\n"
-      "       sql.mcp [port]     start MCP server (default: random 9000-9999)\n"
-      "       sql.mcp-           stop MCP server\n"
-      "       sql.mcp?           print MCP server status\n"
+static RCoreHelpMessage help_msg_sql = {
+    "Usage:", "sql <SQL>", "Query radare2 data with SQL",
+    "sql", " <SQL>", "execute a single SQL statement",
+    "sql?", "", "show this help",
+    "sql.?", "", "show sql.* subcommands",
+    nullptr};
+
+static RCoreHelpMessage help_msg_sql_dot = {
+    "Usage:", "sql.<command>", "Run an r2xsql plugin subcommand",
+    "sql.?", "", "show this help",
+    "Catalogs:", "", "",
+    "sql.tables", "", "list available SQL tables",
+    "sql.views", "", "list available SQL views",
+    "HTTP REST server:", "", "",
+#if defined(XSQL_HAS_THINCLIENT)
+    "sql.http", " [port]", "start HTTP server (default: random 8100-8999)",
+    "sql.http-", "", "stop HTTP server",
+    "sql.http?", "", "show HTTP server status",
+#else
+    "sql.http", "", "HTTP support is not available in this build",
 #endif
-      "\n"
-      "Tables: binary, funcs, locals, blocks, bytes, cfg_edges, switch_tables,\n"
-      "        function_frames, dominators, post_dominators, loops, data_items,\n"
-      "        byte_search, instructions, instruction_operands, esil_ops,\n"
-      "        esil_operands, xrefs, strings, imports, entries, sections,\n"
-      "        segments, io_maps, flags, comments, bookmarks, grep, pseudocode*,\n"
-      "        types, types_members, projects, runtime_settings\n"
-      "Views:  ir_ops, ir_operands, ir_maturities, ir_v_calls, ir_v_mem_writes,\n"
-      "        ir_v_mem_reads, ir_v_branches, ir_v_arith\n"
-      "(* pseudocode only if a decompiler plugin like pdg/pdd/pdc is loaded)");
+#if R2XSQL_HAS_MCP
+    "MCP server (SSE/JSON-RPC, fastmcpp):", "", "",
+    "sql.mcp", " [port]", "start MCP server (default: random 9000-9999)",
+    "sql.mcp-", "", "stop MCP server",
+    "sql.mcp?", "", "show MCP server status",
+#else
+    "MCP server:", "", "",
+    "sql.mcp", "", "MCP support is not available in this build",
+#endif
+    nullptr};
+
+static RCoreHelpMessage help_msg_sql_tables = {
+    "Usage:", "sql.tables", "List available SQL tables",
+    "Tables:", "", "",
+    "", "binary, blocks, bookmarks, byte_search, bytes, cfg_edges", "",
+    "", "comments, data_items, dominators, entries, esil_operands, esil_ops", "",
+    "", "flags, funcs, function_frames, grep, imports, instruction_operands", "",
+    "", "instructions, io_maps, locals, loops, post_dominators, projects", "",
+    "", "pseudocode*, runtime_settings, sections, segments, strings", "",
+    "", "switch_tables, types, types_members, xrefs", "",
+    "* pseudocode requires a decompiler plugin such as pdg, pdd, or pdc", "", "",
+    nullptr};
+
+static RCoreHelpMessage help_msg_sql_views = {
+    "Usage:", "sql.views", "List available SQL views",
+    "Views:", "", "",
+    "", "ir_maturities, ir_operands, ir_ops, ir_v_arith, ir_v_branches", "",
+    "", "ir_v_calls, ir_v_mem_reads, ir_v_mem_writes", "",
+    nullptr};
+
+void print_help(RCore* core) {
+  r_cons_cmd_help(core->cons, help_msg_sql);
 }
 
+void print_dot_help(RCore* core) {
+  r_cons_cmd_help(core->cons, help_msg_sql_dot);
+}
+
+void print_tables(RCore* core) {
+  r_cons_cmd_help(core->cons, help_msg_sql_tables);
+}
+
+void print_views(RCore* core) {
+  r_cons_cmd_help(core->cons, help_msg_sql_views);
+}
+
+#if defined(XSQL_HAS_THINCLIENT) || R2XSQL_HAS_MCP
 // Run a SQL query/script against the session and serialize the canonical
 // run_script envelope used by --http and --mcp (matching the rest of the xsql
 // family). run_script gives multi-statement support and lets the thinclient's
@@ -120,7 +163,9 @@ std::string plugin_query_envelope(r2xsql::Session& s, const std::string& body) {
   };
   return xsql::script_result_to_json(xsql::run_script(body, {}, std::ref(exec)));
 }
+#endif
 
+#if defined(XSQL_HAS_THINCLIENT)
 // Run a request body against the shared session: ".r2cmd <command>" forwards
 // a raw r2 command (returns {"success","output"}); anything else is SQL.
 // Locks g_state.mu so concurrent transports serialize against r2's command
@@ -145,7 +190,9 @@ std::string plugin_raw_or_sql(const std::string& body) {
     return xsql::json{{"success", false}, {"error", "unknown exception"}}.dump();
   }
 }
+#endif
 
+#if defined(XSQL_HAS_THINCLIENT)
 void handle_http_command(RCore* core, const char* tail) {
   // tail points after "http": empty, " <port>", "-", or "?"
   while (*tail == ' ' || *tail == '\t') ++tail;
@@ -233,6 +280,7 @@ void handle_http_command(RCore* core, const char* tail) {
                 bound_port);
   r_cons_println(core->cons, buf);
 }
+#endif
 
 #if R2XSQL_HAS_MCP
 
@@ -363,44 +411,66 @@ bool dispatch(RCore* core, const char* input) {
   // Strip leading whitespace.
   while (*input == ' ' || *input == '\t') ++input;
 
-  // Help: `sql` alone, `sql.`, `sql?`, `sql.?`.
-  if (*input == '\0' || std::strcmp(input, "?") == 0 ||
-      std::strcmp(input, ".?") == 0 || std::strcmp(input, ".") == 0) {
+  // Top-level help: `sql` or `sql?`.
+  if (*input == '\0' || std::strcmp(input, "?") == 0) {
     print_help(core);
     return true;
   }
 
-  // Strip a single leading `.` (the `sql.<SQL>` form).
-  if (*input == '.') ++input;
-  while (*input == ' ' || *input == '\t') ++input;
+  // The dotted namespace is reserved for plugin subcommands, never SQL.
+  if (std::strcmp(input, ".") == 0 || std::strcmp(input, ".?") == 0) {
+    print_dot_help(core);
+    return true;
+  }
 
-  if (*input == '\0') {
-    print_help(core);
+  if (std::strcmp(input, ".tables") == 0 ||
+      std::strcmp(input, ".tables?") == 0) {
+    print_tables(core);
+    return true;
+  }
+
+  if (std::strcmp(input, ".views") == 0 ||
+      std::strcmp(input, ".views?") == 0) {
+    print_views(core);
     return true;
   }
 
   // Plugin-only subcommands prefixed inside the `sql.` namespace.
   // `sql.http [port]` / `sql.http-` / `sql.http?`
-  if (std::strncmp(input, "http", 4) == 0) {
-    const char* rest = input + 4;
+  if (std::strncmp(input, ".http", 5) == 0) {
+    const char* rest = input + 5;
     if (*rest == '\0' || *rest == ' ' || *rest == '\t' ||
         *rest == '-' || *rest == '?') {
+#if defined(XSQL_HAS_THINCLIENT)
       handle_http_command(core, rest);
+#else
+      r_cons_println(core->cons,
+                     "r2xsql: HTTP support is not available in this build.");
+#endif
       return true;
     }
   }
 
-#if R2XSQL_HAS_MCP
   // `sql.mcp [port]` / `sql.mcp-` / `sql.mcp?`
-  if (std::strncmp(input, "mcp", 3) == 0) {
-    const char* rest = input + 3;
+  if (std::strncmp(input, ".mcp", 4) == 0) {
+    const char* rest = input + 4;
     if (*rest == '\0' || *rest == ' ' || *rest == '\t' ||
         *rest == '-' || *rest == '?') {
+#if R2XSQL_HAS_MCP
       handle_mcp_command(core, rest);
+#else
+      r_cons_println(core->cons,
+                     "r2xsql: MCP support is not available in this build.");
+#endif
       return true;
     }
   }
-#endif
+
+  if (*input == '.') {
+    r_cons_printf(core->cons, "Unknown sql subcommand: sql%s\n", input);
+    r_cons_println(core->cons, "See `sql.?` for available subcommands.");
+    return true;
+  }
 
   ensure_session(core);
 
@@ -440,6 +510,7 @@ bool plugin_init(RCorePluginSession* /*ctx*/) {
 }
 
 bool plugin_fini(RCorePluginSession* /*ctx*/) {
+#if defined(XSQL_HAS_THINCLIENT)
   {
     std::unique_ptr<xsql::thinclient::http_query_server> http_server;
     {
@@ -450,6 +521,7 @@ bool plugin_fini(RCorePluginSession* /*ctx*/) {
     }
     if (http_server) http_server->stop();
   }
+#endif
 #if R2XSQL_HAS_MCP
   std::unique_ptr<r2xsql::McpServer> server;
   {
