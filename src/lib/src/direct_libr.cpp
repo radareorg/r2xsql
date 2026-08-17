@@ -759,7 +759,11 @@ class LibrApi : public Api {
             : static_cast<int64_t>(r_bin_get_vaddr(core_->bin, sym->paddr, sym->vaddr));
         EntryRow r;
         r.addr = vaddr;
+#if R2_ABIVERSION >= 136
+        r.size = static_cast<int64_t>(sym->attr.size);
+#else
         r.size = static_cast<int64_t>(sym->size);
+#endif
         r.type = sym->type ? sym->type : "";
         r.bind = sym->bind ? sym->bind : "";
         char* orig = r_bin_name_tostring2(sym->name, 'o');
