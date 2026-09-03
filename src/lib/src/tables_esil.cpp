@@ -26,6 +26,7 @@
 
 #include "tables.hpp"
 #include "json_utils.hpp"
+#include "table_utils.hpp"
 
 namespace r2xsql {
 
@@ -359,13 +360,26 @@ class EsilOpsGen : public xsql::Generator<EsilOpRow> {
   const EsilOpRow& current() const override { return cur_; }
   int64_t rowid() const override { return rid_; }
 };
+// `fa` must be a function START — `pdfj @ fa` resolves the function CONTAINING
+// it, so a mid-function address would come back with the owner's ESIL stream
+// tagged `func_addr = fa`, rows that violate the pushed-down constraint (see
+// `table_utils::func_addr_pushdown_ok`).
+//
+// The UNCONDITIONAL `func_addr_is_start`, not the `_pushdown_ok` shortcut:
+// neither esil table has a direct (C-API) producer, so `pdfj` is issued on the
+// full flavor exactly as on the pipe flavor and there is nothing in-process to
+// self-check. Shortcutting on `be->direct()` would wave through the one case
+// the gate exists to refuse. Same for `EsilOperandsInFuncIterator` below.
 class EsilOpsInFuncIterator : public xsql::RowIterator {
   std::vector<EsilOpRow> rows_;
   std::vector<EsilOperandRow> discard_;
   size_t i_ = 0;
   bool started_ = false;
  public:
-  EsilOpsInFuncIterator(Backend* be, int64_t fa) { esil_rows_for_func(be, fa, rows_, discard_); }
+  EsilOpsInFuncIterator(Backend* be, int64_t fa) {
+    if (!table_utils::func_addr_is_start(be, fa)) return;
+    esil_rows_for_func(be, fa, rows_, discard_);
+  }
   bool next() override { if (!started_) started_ = true; else ++i_; return i_ < rows_.size(); }
   bool eof() const override { return started_ && i_ >= rows_.size(); }
   void column(xsql::FunctionContext& ctx, int col) override {
@@ -415,7 +429,10 @@ class EsilOperandsInFuncIterator : public xsql::RowIterator {
   size_t i_ = 0;
   bool started_ = false;
  public:
-  EsilOperandsInFuncIterator(Backend* be, int64_t fa) { esil_rows_for_func(be, fa, discard_, rows_); }
+  EsilOperandsInFuncIterator(Backend* be, int64_t fa) {
+    if (!table_utils::func_addr_is_start(be, fa)) return;
+    esil_rows_for_func(be, fa, discard_, rows_);
+  }
   bool next() override { if (!started_) started_ = true; else ++i_; return i_ < rows_.size(); }
   bool eof() const override { return started_ && i_ >= rows_.size(); }
   void column(xsql::FunctionContext& ctx, int col) override {

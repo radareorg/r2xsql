@@ -20,8 +20,8 @@
 // pilot of this dispatch.
 //
 // `name`'s rename is explicitly REFUSED a C-API port, unlike the sibling
-// rename/set writes on `comments`/`flags`/`locals` (measured together in a
-// private standalone lab). Not a speed question — `afn`'s bulk-rename
+// rename/set writes on `comments`/`flags`/`locals` (all measured together).
+// Not a speed question — `afn`'s bulk-rename
 // cost clears the same 3x bar the others did. The refusal is PARITY: reading
 // `afn`'s actual handler (`__setFunctionName`, `cmd_anal.inc.c`) found it
 // does substantially more than `r_anal_function_rename` alone —

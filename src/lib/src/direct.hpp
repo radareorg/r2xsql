@@ -12,12 +12,14 @@
 // reading the same state through libr directly — an `xrefs` full scan over
 // ~2000 functions is 2001 commands, ~8 MB of JSON DOM and 2001 cross-CRT
 // free()s, and every live table sets `.no_shared_cache()`, so it pays that per
-// query. The C-API producer is strictly ADDITIVE: r2pipe spawns a separate
+// query. (One deliberate exception: `calling_conventions` keeps the shared
+// cache, since its rows are static for the session's arch -- see the note at
+// its registration.) The C-API producer is strictly ADDITIVE: r2pipe spawns a separate
 // radare2 process and has no C API at all, so the command path remains the only
 // implementation there and the fallback everywhere. It is never deleted.
 //
 // WHY IT IS A SEPARATE HEADER INSTEAD OF AN `#if` INSIDE tables_xrefs.cpp.
-// The core `r2xsql` static library holds all 30 `tables_*.cpp` and deliberately
+// The core `r2xsql` static library holds all 42 `tables_*.cpp` and deliberately
 // links NO radare2 — that is precisely what keeps the pipe-only binary free of
 // r_*.dll imports. A C-API call cannot be compiled into a table file, because
 // that file is only ever compiled into the library with no radare2 to call.
@@ -515,7 +517,7 @@ class Api {
   //
   // Unlike every READ producer above (an N+1-per-row scan, where command
   // dispatch is paid once per row), a single write is one command either
-  // way -- there is no N+1 shape to collapse. A private standalone lab
+  // way -- there is no N+1 shape to collapse. A standalone benchmark
   // measured a BULK workload instead (N repeated writes in a loop,
   // simulating a bulk-rename/bulk-annotate script) and found each of the
   // four operations examined pays a real, per-call fixed cost for

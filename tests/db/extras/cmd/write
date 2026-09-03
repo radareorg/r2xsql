@@ -1,0 +1,30 @@
+# r2xsql: the writable surface, and the injection guard on it.
+#
+# `comments` passes its text through base64 precisely so a value can never be
+# read back as an r2 command. The second case is what proves that guard holds.
+
+NAME=a comment written through SQL is readable through SQL
+FILE=build/fixture.bin
+ARGS=-N
+CMDS=<<EOF
+aaa
+"sql,:quiet INSERT INTO comments (addr, text) VALUES ((SELECT addr FROM funcs WHERE name LIKE '%main%' LIMIT 1), 'tagged')"
+"sql,:quiet SELECT count(*) = 1 FROM comments WHERE text = 'tagged'"
+EOF
+EXPECT=<<EOF
+1
+EOF
+RUN
+
+NAME=comment text is never executed as an r2 command
+FILE=build/fixture.bin
+ARGS=-N
+CMDS=<<EOF
+aaa
+"sql,:quiet INSERT INTO comments (addr, text) VALUES ((SELECT addr FROM funcs WHERE name LIKE '%main%' LIMIT 1), 'x; f INJ_FLAG @ 0x1000')"
+"sql,:quiet SELECT count(*) = 0 FROM flags WHERE name = 'INJ_FLAG'"
+EOF
+EXPECT=<<EOF
+1
+EOF
+RUN

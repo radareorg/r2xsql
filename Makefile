@@ -135,6 +135,10 @@ user-uninstall:
 	$(MAKE) uninstall PLUGDIR="$(R2_USER_PLUGINS)"
 
 # Smoke test: load the freshly built plugin and run one query.
+# `-i <plugin>` loads it directly -- radare2's -i takes an rlang program, an
+# r2script, OR a plugin. The variable this used to export, R2_PLUGIN_PATH,
+# does not exist in radare2 at all (the real one is R2_LIBR_PLUGINS), so the
+# plugin was never loaded here and the test proved nothing.
 test: $(PLUGIN)
 	@echo "=== loading core_r2xsql and running a SQL query ==="
 	$(R2) -i "$(CWD)/$(PLUGIN)" -qc 'aa; sql SELECT count(*) AS n FROM funcs' -- /bin/ls

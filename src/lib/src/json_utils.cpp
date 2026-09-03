@@ -94,36 +94,6 @@ bool valid_type_text(std::string_view type) {
   return true;
 }
 
-bool valid_c_declaration(std::string_view text) {
-  if (text.empty()) return false;
-  for (unsigned char c : text) {
-    if (std::isalnum(c)) continue;
-    switch (c) {
-      case ' ':
-      case '\t':
-      case '_':
-      case '.':
-      case '*':
-      case '&':
-      case '(':
-      case ')':
-      case '[':
-      case ']':
-      case '{':
-      case '}':
-      case ',':
-      case ';':
-      case ':':
-      case '=':
-      case '+':
-      case '-':
-        break;
-      default:
-        return false;
-    }
-  }
-  return true;
-}
 
 bool valid_c_signature(std::string_view text) {
   if (text.empty()) return false;

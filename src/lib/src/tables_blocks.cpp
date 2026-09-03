@@ -32,6 +32,7 @@
 #include "tables.hpp"
 #include "direct.hpp"
 #include "json_utils.hpp"
+#include "table_utils.hpp"
 
 namespace r2xsql {
 
@@ -111,13 +112,18 @@ class BlocksGen : public xsql::Generator<BlockRow> {
 };
 
 // Pushdown path for `WHERE func_addr = <fa>`: one `afbj @ <fa>`, or the
-// direct API's `blocks_in_func`.
+// direct API's `blocks_in_func`. `fa` must be a function START — see
+// `table_utils::func_addr_pushdown_ok` for why a mid-function address has to
+// answer with nothing rather than with its owner's blocks.
 class BlocksInFuncIterator : public xsql::RowIterator {
   std::vector<BlockRow> rows_;
   size_t i_ = 0;
   bool started_ = false;
  public:
-  BlocksInFuncIterator(Backend* be, int64_t fa) : rows_(blocks_for_func(be, fa)) {}
+  BlocksInFuncIterator(Backend* be, int64_t fa) {
+    if (!table_utils::func_addr_pushdown_ok(be, fa)) return;
+    rows_ = blocks_for_func(be, fa);
+  }
   bool next() override {
     if (!started_) started_ = true; else ++i_;
     return i_ < rows_.size();

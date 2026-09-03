@@ -59,6 +59,14 @@ struct LibRow {
 
 void register_libs_table(Session& s) {
   auto def = xsql::cached_table<LibRow>("libs")
+    // Query-scoped, like every other live table. The shared cache is
+    // OPT-OUT and is built exactly once, and NOTHING in radare2 can
+    // invalidate it -- so without this the rows freeze for the life of
+    // the Session. That is survivable for a one-shot process and wrong
+    // for a long-lived shared session, where another client on the same
+    // core can change what this reads: it is the loaded binary's own
+    // library list, and `o <file>` replaces it.
+    .no_shared_cache()
     .estimate_rows([]() -> size_t { return 16; })
     .cache_builder([be = s.backend_ptr()](std::vector<LibRow>& rows) {
       auto arr = be->cmd_json("ilj");

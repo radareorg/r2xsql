@@ -51,6 +51,7 @@
 #include "tables.hpp"
 #include "direct.hpp"
 #include "json_utils.hpp"
+#include "table_utils.hpp"
 
 namespace r2xsql {
 
@@ -349,13 +350,32 @@ void register_instructions_table(Session& s) {
     // radare2's instruction family — the cheap way to find FPU/SSE/privileged
     // code without pattern-matching mnemonics. Same pdfj object, no extra cost.
     .column_text ("family",       [](const InsnRow& r) { return r.family; })
-    // func_addr pushdown: projection-gated the same way as the full scan.
+    // func_addr pushdown: projection-gated the same way as the full scan, and
+    // start-gated the way every other `func_addr` pushdown is — `pdfj @ X`
+    // resolves the function CONTAINING X, so a mid-function address must
+    // answer with nothing rather than with its owner's instructions tagged
+    // `func_addr = X` (see `table_utils::func_addr_pushdown_ok`).
+    //
+    // THE ORDER HERE MATTERS. Unlike every other `func_addr` pushdown, this one
+    // can reach the COMMAND even on a direct backend: the C-API leg never
+    // produces `disasm`/`mnemonic`, so a projection that reads either falls
+    // through to `pdfj @ X`. `func_addr_pushdown_ok` short-circuits on
+    // `be->direct()` — correct only where `direct()` implies the C-API producer
+    // runs, which is exactly what `needs_render` decides here. So the projection
+    // branch goes FIRST, and whatever reaches the command is start-checked
+    // unconditionally with `func_addr_is_start`. Gating up front instead left
+    // `SELECT disasm ... WHERE func_addr = <mid-function>` returning the owner's
+    // instructions on the full flavor while pipe returned none.
     .filter_eq_projection("func_addr",
       [be = s.backend_ptr()](int64_t fa, uint64_t col_used) -> std::unique_ptr<xsql::RowIterator> {
         if (!needs_render(col_used)) {
           if (auto* api = be->direct()) {
+            // Self-gating: `instructions_in_func` checks `fcn->addr` in-process.
             return std::make_unique<InsnsInFuncIterator>(insns_for_func_api(api, fa));
           }
+        }
+        if (!table_utils::func_addr_is_start(be, fa)) {
+          return std::make_unique<InsnsInFuncIterator>(std::vector<InsnRow>{});
         }
         return std::make_unique<InsnsInFuncIterator>(insns_for_func(be, fa));
       }, 5.0, 64.0)

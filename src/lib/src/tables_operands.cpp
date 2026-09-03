@@ -26,6 +26,7 @@
 
 #include "tables.hpp"
 #include "json_utils.hpp"
+#include "table_utils.hpp"
 
 namespace r2xsql {
 
@@ -237,14 +238,25 @@ class OperandsGen : public xsql::Generator<OperandRow> {
   }
 };
 
-// Pushdown for `WHERE func_addr = <fa>`: one afbj plus bounded aoj reads.
+// Pushdown for `WHERE func_addr = <fa>`: one afbj plus bounded aoj reads. `fa`
+// must be a function START — `afbj @ fa` resolves the function CONTAINING it,
+// so a mid-function address would come back with the owner's operands tagged
+// `func_addr = fa`, rows that violate the pushed-down constraint (see
+// `table_utils::func_addr_pushdown_ok`).
+//
+// The UNCONDITIONAL `func_addr_is_start`, not the `_pushdown_ok` shortcut: this
+// table has no direct (C-API) producer at all, so `operands_for_func` issues
+// `afbj`/`aoj` on the full flavor exactly as on the pipe flavor. Shortcutting on
+// `be->direct()` would wave through the one case the gate exists to refuse.
 class OperandsInFuncIterator : public xsql::RowIterator {
   std::vector<OperandRow> rows_;
   size_t i_ = 0;
   bool started_ = false;
  public:
-  OperandsInFuncIterator(Backend* be, int64_t fa)
-      : rows_(operands_for_func(be, fa)) {}
+  OperandsInFuncIterator(Backend* be, int64_t fa) {
+    if (!table_utils::func_addr_is_start(be, fa)) return;
+    rows_ = operands_for_func(be, fa);
+  }
   bool next() override {
     if (!started_) started_ = true; else ++i_;
     return i_ < rows_.size();

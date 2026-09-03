@@ -1,0 +1,37 @@
+# r2xsql: views and schema introspection. sqlite_master is the portable way
+# to list tables and views -- no tool-specific introspection command.
+
+NAME=the names view is queryable
+FILE=build/fixture.bin
+ARGS=-N
+CMDS=<<EOF
+aaa
+"sql,:quiet SELECT count(*) > 0 FROM (SELECT name FROM names LIMIT 1)"
+EOF
+EXPECT=<<EOF
+1
+EOF
+RUN
+
+NAME=sqlite_master lists both funcs and the callers view
+FILE=build/fixture.bin
+ARGS=-N
+CMDS=<<EOF
+"sql,:quiet SELECT count(*) = 2 FROM sqlite_master WHERE type IN ('table','view') AND name IN ('funcs','callers')"
+EOF
+EXPECT=<<EOF
+1
+EOF
+RUN
+
+NAME=grep finds a function by name
+FILE=build/fixture.bin
+ARGS=-N
+CMDS=<<EOF
+aaa
+"sql,:quiet SELECT count(*) > 0 FROM grep WHERE pattern = 'main' AND name LIKE '%main%'"
+EOF
+EXPECT=<<EOF
+1
+EOF
+RUN

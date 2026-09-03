@@ -50,12 +50,8 @@ bool valid_flag_name(std::string_view name);
 // SET type on the locals table.
 bool valid_type_text(std::string_view type);
 
-// True iff `text` is a one-line C declaration that can be placed inside a
-// fully r2-quoted `td` command.
-bool valid_c_declaration(std::string_view text);
-
 // True iff `text` is a balanced C function signature safe to pass unquoted to
-// `afs`. Unlike `valid_c_declaration`, this rejects every r2 command separator,
+// `afs`. This rejects every r2 command separator,
 // including semicolons and ampersands.
 bool valid_c_signature(std::string_view text);
 

@@ -61,7 +61,7 @@
 // unbuilt and is not needed here.
 //
 // The rename is ALSO now C-API-backed on the libr flavor, a separate, later
-// port from the cmd_noeval rollout above: a private standalone lab
+// port from the cmd_noeval rollout above: a standalone benchmark
 // measured a bulk workload (N up to 500 repeated renames, simulating a
 // bulk-rename script) at 48-62x over the CMD leg (the SAME
 // `r_core_call_str_at("fr ...")` dispatch this table already issues), with
@@ -72,6 +72,22 @@
 // at all — see `Api::flag_rename` in `direct.hpp`. On every non-libr backend
 // (r2pipe, mock), `Backend::direct()` returns nullptr and the exact `fr`
 // dispatch above runs unchanged.
+//
+// THE RENAME IS VERIFIED, because radare2 will not say so. `fr` reports a
+// refusal — a colliding new name, a name its own filter rejects, a flag it
+// could not find — with `R_LOG_ERROR`, on the LOG stream. Under r2pipe that is
+// the r2 process's stderr; it never reaches the captured stdout that
+// `table_utils::command_error_text` scans, so a rename that changed nothing
+// used to report SQL success. The command leg now reads the flag table back
+// (`flag_name_exists`) and fails the statement unless the OLD name is gone.
+// The C-API leg needs none of this: `r_flag_rename` returns the answer
+// directly.
+//
+// AND IT IS NO-OP GUARDED. `UPDATE flags SET name = <the current name>` issues
+// nothing at all, like `locals` and `bookmarks` already did. radare2 refuses a
+// self-rename, so without the guard the two flavors disagreed about a
+// statement that asks for nothing: the libr flavor failed it and the pipe
+// flavor silently "succeeded".
 
 #include <r2xsql/session.hpp>
 #include <r2xsql/backend.hpp>
@@ -101,6 +117,34 @@ std::string dispatch_write(Backend* be, int64_t addr, const std::string& command
   std::string out;
   if (be->cmd_noeval(addr, command, &out)) return out;
   return be->cmd(command + " @ " + json_utils::hex_addr(addr));
+}
+
+// True when radare2 still knows a flag by this name.
+//
+// The command leg's only way to find out whether `fr` actually did anything.
+// radare2 reports a REFUSED rename with `R_LOG_ERROR` ("Invalid name", or
+// "Cannot find flag with given name") — its LOG stream, which is the r2
+// process's stderr under r2pipe and never reaches `Backend::cmd`'s captured
+// stdout. `table_utils::command_error_text` therefore sees an empty, clean
+// result for a write that changed nothing, and the statement used to report
+// success. So the write is verified by reading back instead — exactly as
+// `locals` verifies `afvn` with a second `afvj`, and as `bookmarks` already
+// verified this same `fr` with a second `fj`. `flags` was the one table in that
+// family that took `fr`'s silence for success.
+//
+// Unlike those two there is nothing to scope the read to: `locals` re-reads one
+// function, `bookmarks` re-reads inside its own flagspace, and no radare2
+// command lists the flags at one address in JSON — so this is the same
+// whole-table `fj` the read path already issues. One extra command per RENAMED
+// ROW; writes are rare next to reads, and a rename that silently did nothing is
+// worth more than the command.
+bool flag_name_exists(Backend* be, const std::string& name) {
+  auto arr = be->cmd_json("fj");
+  if (!arr.is_array()) return false;
+  for (const auto& j : arr) {
+    if (json_utils::str(j, "name") == name) return true;
+  }
+  return false;
 }
 
 void build_flags(Backend* be, std::vector<FlagRow>& rows) {
@@ -167,6 +211,16 @@ void register_flags_table(Session& s) {
               "flags: name must be [A-Za-z0-9._$] (no spaces or r2 metacharacters)");
           return false;
         }
+        // No-op replay guard, the same one `locals` has always had. Renaming a
+        // flag to the name it already carries changes nothing, so it issues
+        // nothing. It is not merely an optimization: radare2 REFUSES that
+        // rename (`set_flag_item_name` returns false the moment the names
+        // compare equal), and the two legs learn of the refusal differently —
+        // the C-API leg gets `false` back and failed the statement, while the
+        // command leg only ever saw a log line it cannot read and reported
+        // success. Guarding makes `UPDATE flags SET name = name` a silent
+        // no-op on both flavors instead of a flavor-dependent coin flip.
+        if (r.name == v) return true;
         // `fr <old> <new>` is radare2's generic in-place flag rename
         // (r_flag_rename -> update_flag_item_name): it updates the existing
         // item's name key and never creates a new item, regardless of which
@@ -215,6 +269,7 @@ void register_flags_table(Session& s) {
         // mock) falls back to the exact same bare `fr <old> <new>` string
         // this table has always issued, with no `@ <addr>` ever spliced onto
         // it.
+        const std::string old_name = r.name;
         std::string cmd = std::string("fr ") + r.name + " " + v;
         std::string out;
         if (!be->cmd_noeval(r.addr, cmd, &out)) {
@@ -223,6 +278,21 @@ void register_flags_table(Session& s) {
         if (std::string e = table_utils::command_error_text(out); !e.empty()) {
           xsql::set_vtab_error("flags: rename failed (addr=" +
                                json_utils::hex_addr(r.addr) + "): " + e);
+          return false;
+        }
+        // The marker scan above only sees STDOUT, and a refused `fr` says
+        // nothing there — see `flag_name_exists`. A rename that happened
+        // removes the old name from radare2's flag table; a rename it refused
+        // (a colliding new name, or one its own name filter rejects) leaves it
+        // in place. That, and not the new name, is what is checked: radare2
+        // FILTERS the name it stores (`$` becomes `_`, a leading digit becomes
+        // `_`), so a successful rename does not always store the exact string
+        // that was asked for — while the old name being gone is true of every
+        // successful rename and of no refused one.
+        if (flag_name_exists(be, old_name)) {
+          xsql::set_vtab_error("flags: rename was not reflected by fj (addr=" +
+                               json_utils::hex_addr(r.addr) +
+                               ", old_name=" + old_name + ")");
           return false;
         }
         r.name = v;

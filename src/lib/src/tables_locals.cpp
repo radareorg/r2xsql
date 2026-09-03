@@ -26,7 +26,7 @@
 //
 // The WRITE side (this table's `name` rename and `type` retype) is ALSO now
 // C-API-backed on the libr flavor, a separate, later port from the read-side
-// scan above: a private standalone lab measured a bulk workload (N
+// scan above: a standalone benchmark measured a bulk workload (N
 // repeated renames/retypes, simulating a bulk-retype script) at 78-150x over
 // the CMD leg. Reading `cmd_anal.inc.c`'s `afvn`/`afvt` handlers found each is
 // nothing more than `r_anal_function_get_var_byname` + `r_anal_var_rename`/

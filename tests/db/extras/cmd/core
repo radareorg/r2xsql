@@ -1,0 +1,111 @@
+# r2xsql: core tables over a real compiled binary.
+# Each CMDS block ends in a `sql,:quiet` whose SQL evaluates the assertion, so
+# EXPECT is a literal 1 rather than a compiler-dependent count.
+
+NAME=funcs is non-empty after analysis
+FILE=build/fixture.bin
+ARGS=-N
+CMDS=<<EOF
+aaa
+"sql,:quiet SELECT count(*) > 0 FROM funcs"
+EOF
+EXPECT=<<EOF
+1
+EOF
+RUN
+
+NAME=funcs contains a function named main
+FILE=build/fixture.bin
+ARGS=-N
+CMDS=<<EOF
+aaa
+"sql,:quiet SELECT count(*) > 0 FROM funcs WHERE name LIKE '%main%'"
+EOF
+EXPECT=<<EOF
+1
+EOF
+RUN
+
+NAME=strings carries the fixture marker
+FILE=build/fixture.bin
+ARGS=-N
+CMDS=<<EOF
+aaa
+"sql,:quiet SELECT count(*) > 0 FROM strings WHERE content LIKE '%r2xsql_test_marker_string%'"
+EOF
+EXPECT=<<EOF
+1
+EOF
+RUN
+
+NAME=xrefs is non-empty
+FILE=build/fixture.bin
+ARGS=-N
+CMDS=<<EOF
+aaa
+"sql,:quiet SELECT count(*) > 0 FROM xrefs"
+EOF
+EXPECT=<<EOF
+1
+EOF
+RUN
+
+NAME=sections includes a text section
+FILE=build/fixture.bin
+ARGS=-N
+CMDS=<<EOF
+aaa
+"sql,:quiet SELECT count(*) > 0 FROM sections WHERE name LIKE '%text%'"
+EOF
+EXPECT=<<EOF
+1
+EOF
+RUN
+
+NAME=funcs.prototype resolves as a column
+FILE=build/fixture.bin
+ARGS=-N
+CMDS=<<EOF
+aaa
+"sql,:quiet SELECT count(*) > 0 FROM (SELECT prototype FROM funcs WHERE name LIKE '%main%')"
+EOF
+EXPECT=<<EOF
+1
+EOF
+RUN
+
+NAME=funcs.calltype is the native convention, not the degraded reg fallback
+FILE=build/fixture.bin
+ARGS=-N
+CMDS=<<EOF
+aaa
+"sql,:quiet SELECT calltype = CASE WHEN (SELECT lower(value) FROM binary WHERE key = 'bintype') LIKE '%pe%' THEN 'ms' ELSE 'amd64' END FROM funcs WHERE name LIKE '%main%' LIMIT 1"
+EOF
+EXPECT=<<EOF
+1
+EOF
+RUN
+
+NAME=a function is findable by an address inside it
+FILE=build/fixture.bin
+ARGS=-N
+CMDS=<<EOF
+aaa
+"sql,:quiet SELECT count(*) > 0 FROM funcs g WHERE g.name LIKE '%main%' AND EXISTS (SELECT 1 FROM funcs f WHERE f.name LIKE '%main%' AND g.addr <= f.addr AND g.end_addr > f.addr)"
+EOF
+EXPECT=<<EOF
+1
+EOF
+RUN
+
+NAME=instructions decode with non-empty disasm
+FILE=build/fixture.bin
+ARGS=-N
+CMDS=<<EOF
+aaa
+"sql,:quiet SELECT count(*) > 0 AND sum(disasm IS NULL OR disasm = '') = 0 FROM instructions WHERE func_addr = (SELECT addr FROM funcs WHERE name LIKE '%main%' LIMIT 1)"
+EOF
+EXPECT=<<EOF
+1
+EOF
+RUN

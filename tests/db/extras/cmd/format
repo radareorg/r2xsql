@@ -1,0 +1,67 @@
+# r2xsql: the three output forms.
+#
+#   sql  <SQL>                 radare2's own table
+#   sql,<tablequery> <SQL>     the same table, shaped by r2's table query
+#   sqlj <SQL>                 the JSON envelope, for a program
+#
+# sqlj is NOT an RTable and deliberately so: r_table_tojson emits only
+# pj_ks/pj_kn (there is no pj_knull) and skips any cell whose text is empty,
+# so SQL NULL and '' both vanish from a table-JSON object. The last case pins
+# that difference.
+
+NAME=sql prints a radare2 table with a header
+FILE=malloc://1024
+ARGS=-N
+CMDS=<<EOF
+"sql SELECT 1 AS n, 'abc' AS name"
+EOF
+EXPECT=<<EOF
+n name
+------
+1 abc
+EOF
+RUN
+
+NAME=the sql, form reaches r2's csv serializer
+FILE=malloc://1024
+ARGS=-N
+CMDS=<<EOF
+"sql,:csv SELECT 1 AS n, 'abc' AS name"
+EOF
+EXPECT=<<EOF
+n,name
+1,abc
+EOF
+RUN
+
+NAME=the sql, form filters, sorts and drops the header
+FILE=malloc://1024
+ARGS=-N
+CMDS=<<EOF
+"sql,n/gt/1,n/sort/dec,:quiet SELECT 1 AS n UNION SELECT 2 UNION SELECT 3"
+EOF
+EXPECT=<<EOF
+3
+2
+EOF
+RUN
+
+NAME=the r2 table JSON drops SQL NULL and empty string entirely
+FILE=malloc://1024
+ARGS=-N
+CMDS=<<EOF
+"sql,:json SELECT NULL AS a, '' AS b, 'x' AS d"
+EOF
+EXPECT=<<EOF
+[{"d":"x"}]
+EOF
+RUN
+
+NAME=sqlj keeps all three, and keeps NULL distinct from empty string
+FILE=malloc://1024
+ARGS=-N
+CMDS=<<EOF
+"sqlj SELECT NULL AS a, '' AS b, 'x' AS d"
+EOF
+REGEXP_OUT="rows":\[\[null,"","x"\]\]
+RUN

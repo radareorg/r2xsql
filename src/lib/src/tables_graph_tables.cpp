@@ -38,6 +38,7 @@
 #include "tables.hpp"
 #include "direct.hpp"
 #include "json_utils.hpp"
+#include "table_utils.hpp"
 
 namespace r2xsql {
 
@@ -413,6 +414,12 @@ class GraphGen : public xsql::Generator<Row> {
 
 // `WHERE func_addr = <fa>` pushdown: one afbj @ fa, or the direct API's
 // `blocks_in_func` (via `collect_`, which already checks `be->direct()`).
+// `fa` must be a function START — see `table_utils::func_addr_pushdown_ok` for
+// why a mid-function address has to answer with nothing rather than with its
+// owner's graph. The gate lives here, not in the `collect_*` helpers, because
+// the full-scan generator shares those and already walks `aflj` — every
+// address it passes is a function start by construction, and gating there
+// would cost an extra `afij` per function for no answer it can change.
 template <typename Row, typename Collect>
 class GraphInFuncIterator : public xsql::RowIterator {
   std::vector<Row> rows_;
@@ -420,6 +427,7 @@ class GraphInFuncIterator : public xsql::RowIterator {
   bool started_ = false;
  public:
   GraphInFuncIterator(Backend* be, int64_t fa, Collect collect) {
+    if (!table_utils::func_addr_pushdown_ok(be, fa)) return;
     collect(be, fa, rows_);
   }
   bool next() override {

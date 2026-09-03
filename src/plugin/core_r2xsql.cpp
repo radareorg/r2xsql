@@ -9,45 +9,35 @@
 // Once loaded into radare2 (e.g. `L core_r2xsql.dll` / `core_r2xsql.so`),
 // this plugin registers a `sql` command:
 //
-//   sql                  print help
-//   sql <SQL>            execute one statement
-//   sql?                 print top-level help
-//   sql.?                list sql.* subcommands
-//   sql.tables           list available tables
-//   sql.views            list available views
-//   sql.http [port]      start/stop/status the HTTP REST server
-//   sql.mcp  [port]      start/stop/status the MCP server
+//   sql / sql?             print help
+//   sql <SQL>              execute one statement, print an r2 table
+//   sql,<query> <SQL>      same, filtered/formatted by r2's table query
+//   sqlj <SQL>             execute one statement, print the JSON envelope
+//   sql.?                  list the sql.* subcommands
+//   sql.tables sql.views   list the tables/views this build exposes
+//
+// The `sql.` namespace is subcommands ONLY -- it never carries SQL.
 //
 // The plugin wraps the host RCore* with libr2xsql's LibrBackend (no
 // ownership) and shares a single Session across calls so SQLite caches
-// stay warm. The HTTP and MCP servers run against that same shared Session.
+// stay warm. Transport, lifecycle and projects are radare2's job.
 
 #include <r2xsql/r2xsql.hpp>
-#include <r2xsql/backend_mock.hpp>
 
 #include <r_core.h>
 #include <r_lib.h>
 
 #include <cstdio>
-#include <cstring>
 #include <cstdlib>
+#include <cstring>
 #include <memory>
 #include <mutex>
-#include <sstream>
 #include <string>
-#include <string_view>
 
 #include <functional>
 
 #include <xsql/json.hpp>
 #include <xsql/query_script.hpp>
-#if defined(XSQL_HAS_THINCLIENT)
-#include <xsql/thinclient/http_query_server.hpp>
-#endif
-
-#if R2XSQL_HAS_MCP
-#include "../common/mcp_server.hpp"
-#endif
 
 // r2xsql::make_libr_backend_from_core (declared in <r2xsql/backend.hpp>, included
 // via <r2xsql/r2xsql.hpp> above) wraps the host RCore* without taking ownership.
@@ -58,16 +48,6 @@ struct PluginState {
   std::unique_ptr<r2xsql::Session> session;
   RCore* bound_core = nullptr;
   std::mutex mu;
-#if defined(XSQL_HAS_THINCLIENT)
-  std::unique_ptr<xsql::thinclient::http_query_server> http;
-  int http_port = 0;
-  std::string http_bind;
-#endif
-#if R2XSQL_HAS_MCP
-  std::unique_ptr<r2xsql::McpServer> mcp;
-  int mcp_port = 0;
-  std::string mcp_bind;
-#endif
 };
 
 PluginState g_state;
@@ -80,78 +60,45 @@ void ensure_session(RCore* core) {
   g_state.bound_core = core;
 }
 
+// Help goes through r2's own RCoreHelpMessage / r_core_cmd_help rather than a
+// hand-rolled r_cons_println block, so `sql?` renders, aligns and colours like
+// every other command's help and follows r2's `?` conventions.
+//
+// Note r_core_cmd_help(core, msg) is used, NOT r_cons_cmd_help(cons, msg):
+// the latter's arity changed across radare2 versions (it takes a use_color
+// argument on some), while r_core_cmd_help has been a stable two-argument
+// wrapper that reads the colour setting from the core's config itself. It is
+// what r2's own builtins call.
 static RCoreHelpMessage help_msg_sql = {
-    "Usage:", "sql <SQL>", "Query radare2 data with SQL",
-    "sql", " <SQL>", "execute a single SQL statement",
+    "Usage:", "sql[j,.] <SQL>", "Query radare2's analysis with SQL",
+    "sql", " <SQL>", "run a statement, print a radare2 table",
+    "sql,", "<tablequery> <SQL>", "same, shaped by an r2 table query",
+    "sqlj", " <SQL>", "run statements, print the JSON envelope (for programs)",
     "sql?", "", "show this help",
+    "sql,?", "", "show the table-query language's own help",
     "sql.?", "", "show sql.* subcommands",
-    nullptr};
+    "NOTE:", "", "the table query is a SUFFIX and ends at the first space, so",
+    "", "", "it never collides with SQL: sql,:csv SELECT name, size FROM funcs",
+    "NOTE:", "", "prefer sqlj over sql,:json in code -- an r2 table has no null",
+    "", "", "and drops empty cells, so NULL and '' both vanish from the output",
+    "NOTE:", "", "over =h, wrap the whole command in double quotes or r2's own",
+    "", "", "parser eats > and | first and you get an empty body, silently",
+    NULL};
 
 static RCoreHelpMessage help_msg_sql_dot = {
-    "Usage:", "sql.<command>", "Run an r2xsql plugin subcommand",
+    "Usage:", "sql.<command>", "r2xsql subcommands (this namespace is never SQL)",
     "sql.?", "", "show this help",
-    "Catalogs:", "", "",
-    "sql.tables", "", "list available SQL tables",
-    "sql.views", "", "list available SQL views",
-    "HTTP REST server:", "", "",
-#if defined(XSQL_HAS_THINCLIENT)
-    "sql.http", " [port]", "start HTTP server (default: random 8100-8999)",
-    "sql.http-", "", "stop HTTP server",
-    "sql.http?", "", "show HTTP server status",
-#else
-    "sql.http", "", "HTTP support is not available in this build",
-#endif
-#if R2XSQL_HAS_MCP
-    "MCP server (SSE/JSON-RPC, fastmcpp):", "", "",
-    "sql.mcp", " [port]", "start MCP server (default: random 9000-9999)",
-    "sql.mcp-", "", "stop MCP server",
-    "sql.mcp?", "", "show MCP server status",
-#else
-    "MCP server:", "", "",
-    "sql.mcp", "", "MCP support is not available in this build",
-#endif
-    nullptr};
+    "sql.tables", "", "list the SQL tables this build exposes",
+    "sql.views", "", "list the SQL views this build exposes",
+    NULL};
 
-static RCoreHelpMessage help_msg_sql_tables = {
-    "Usage:", "sql.tables", "List available SQL tables",
-    "Tables:", "", "",
-    "", "binary, blocks, bookmarks, byte_search, bytes, cfg_edges", "",
-    "", "comments, data_items, dominators, entries, esil_operands, esil_ops", "",
-    "", "flags, funcs, function_frames, grep, imports, instruction_operands", "",
-    "", "instructions, io_maps, locals, loops, post_dominators, projects", "",
-    "", "pseudocode*, runtime_settings, sections, segments, strings", "",
-    "", "switch_tables, types, types_members, xrefs", "",
-    "* pseudocode requires a decompiler plugin such as pdg, pdd, or pdc", "", "",
-    nullptr};
+void print_help(RCore* core) { r_core_cmd_help(core, help_msg_sql); }
 
-static RCoreHelpMessage help_msg_sql_views = {
-    "Usage:", "sql.views", "List available SQL views",
-    "Views:", "", "",
-    "", "ir_maturities, ir_operands, ir_ops, ir_v_arith, ir_v_branches", "",
-    "", "ir_v_calls, ir_v_mem_reads, ir_v_mem_writes", "",
-    nullptr};
+void print_dot_help(RCore* core) { r_core_cmd_help(core, help_msg_sql_dot); }
 
-void print_help(RCore* core) {
-  r_cons_cmd_help(core->cons, help_msg_sql);
-}
-
-void print_dot_help(RCore* core) {
-  r_cons_cmd_help(core->cons, help_msg_sql_dot);
-}
-
-void print_tables(RCore* core) {
-  r_cons_cmd_help(core->cons, help_msg_sql_tables);
-}
-
-void print_views(RCore* core) {
-  r_cons_cmd_help(core->cons, help_msg_sql_views);
-}
-
-#if defined(XSQL_HAS_THINCLIENT) || R2XSQL_HAS_MCP
 // Run a SQL query/script against the session and serialize the canonical
-// run_script envelope used by --http and --mcp (matching the rest of the xsql
-// family). run_script gives multi-statement support and lets the thinclient's
-// ?format=text|csv|tsv re-render the result via json_to_script_result.
+// run_script envelope. This is what `sqlj` prints: multi-statement results
+// and a real SQL-NULL mask, neither of which the text renderer can express.
 std::string plugin_query_envelope(r2xsql::Session& s, const std::string& body) {
   auto exec = [&s](const std::string& sql, xsql::ScriptStatementResult& out) {
     auto r = s.query(sql);
@@ -159,316 +106,184 @@ std::string plugin_query_envelope(r2xsql::Session& s, const std::string& body) {
     out.error = r.error;
     out.columns = r.columns;
     out.rows.reserve(r.rows.size());
-    for (const auto& row : r.rows) out.rows.push_back(row.values);
+    // Carry the SQL-NULL mask alongside the values. Without it every consumer
+    // that distinguishes NULL from '' -- the JSON envelope's `null`, notably --
+    // silently reports an empty string instead, because `cell_null` stays empty
+    // and `is_null_cell()` can never be true. query_script.hpp:966 does exactly
+    // this in the library's own adapter.
+    out.cell_null.reserve(r.rows.size());
+    for (const auto& row : r.rows) {
+      out.rows.push_back(row.values);
+      out.cell_null.push_back(row.nulls);
+    }
   };
   return xsql::script_result_to_json(xsql::run_script(body, {}, std::ref(exec)));
 }
-#endif
 
-#if defined(XSQL_HAS_THINCLIENT)
-// Run a request body against the shared session: ".r2cmd <command>" forwards
-// a raw r2 command (returns {"success","output"}); anything else is SQL.
-// Locks g_state.mu so concurrent transports serialize against r2's command
-// thread. Must be called with g_state.session already initialized.
-std::string plugin_raw_or_sql(const std::string& body) {
-  static constexpr std::string_view kRaw = ".r2cmd ";
-  std::lock_guard<std::mutex> lock(g_state.mu);
-  if (!g_state.session) {
-    return xsql::json{{"success", false},
-                      {"error", "session not initialized"}}.dump();
+// Render a result through radare2's OWN table API rather than formatting it
+// here. r_core_table_new picks up cfg.table.format, cfg.table.maxcol,
+// cfg.table.wrap and scr.utf8, and r_table_tostring dispatches to
+// fancy/simple/csv/tsv/html/json/sql/r2cmds -- so `sql` prints like every other
+// r2 command, honours the user's table config, and inherits any format r2 grows
+// later without a line of work here. The `sql,<tablequery>` form (see dispatch)
+// feeds r_table_query, which is where :csv/:json/:quiet/sort/paging come from.
+//
+// Every column is declared `string`, deliberately. Sniffing numerics is
+// tempting and wrong: r_table_tojson re-emits a non-numeric cell in a `number`
+// column as a string, so a sniffed column is unstable row-to-row. ORDER BY in
+// the SQL is the better answer and it is already available.
+//
+// SQL NULL renders as the empty string here -- RTable cells are plain char*
+// and have no null representation at all. That is precisely why `sqlj` does
+// NOT go through RTable; see plugin_query_envelope.
+std::string render_table(RCore* core, const xsql::Result& res,
+                         const char* table_query) {
+  if (!res.ok()) return "ERROR: " + res.error + "\n";
+
+  RTable* t = r_core_table_new(core, "sql");
+  if (!t) return "ERROR: cannot create table\n";
+
+  for (const auto& name : res.columns) {
+    r_table_add_column(t, r_table_type("string"), name.c_str(), 0);
   }
-  try {
-    size_t i = body.find_first_not_of(" \t\r\n");
-    if (i != std::string::npos && body.compare(i, kRaw.size(), kRaw) == 0) {
-      std::string out = g_state.session->raw_cmd(body.substr(i + kRaw.size()));
-      return xsql::json{{"success", true}, {"output", out}}.dump();
-    }
-    return plugin_query_envelope(*g_state.session, body);
-  } catch (const std::exception& e) {
-    return xsql::json{{"success", false}, {"error", e.what()}}.dump();
-  } catch (...) {
-    return xsql::json{{"success", false}, {"error", "unknown exception"}}.dump();
-  }
-}
-#endif
-
-#if defined(XSQL_HAS_THINCLIENT)
-void handle_http_command(RCore* core, const char* tail) {
-  // tail points after "http": empty, " <port>", "-", or "?"
-  while (*tail == ' ' || *tail == '\t') ++tail;
-
-  if (*tail == '?') {
-    std::lock_guard<std::mutex> lock(g_state.mu);
-    if (g_state.http && g_state.http->is_running()) {
-      char buf[160];
-      std::snprintf(buf, sizeof(buf),
-                    "r2xsql: HTTP server running at http://%s:%d",
-                    g_state.http_bind.c_str(), g_state.http_port);
-      r_cons_println(core->cons, buf);
-    } else {
-      r_cons_println(core->cons, "r2xsql: HTTP server not running.");
-    }
-    return;
-  }
-
-  if (*tail == '-') {
-    std::unique_ptr<xsql::thinclient::http_query_server> server;
-    {
-      std::lock_guard<std::mutex> lock(g_state.mu);
-      server = std::move(g_state.http);
-      g_state.http_port = 0;
-      g_state.http_bind.clear();
-    }
-    if (server) {
-      server->stop();
-      r_cons_println(core->cons, "r2xsql: HTTP server stopped.");
-    } else {
-      r_cons_println(core->cons, "r2xsql: HTTP server was not running.");
-    }
-    return;
-  }
-
-  {
-    std::lock_guard<std::mutex> lock(g_state.mu);
-    if (g_state.http && g_state.http->is_running()) {
-      r_cons_println(core->cons,
-                     "r2xsql: HTTP server already running. Use `sql.http-` to stop it.");
-      return;
-    }
-  }
-
-  int port = 0;
-  if (*tail) {
-    char* endp = nullptr;
-    long v = std::strtol(tail, &endp, 10);
-    if (endp != tail && v >= 0 && v <= 65535) port = static_cast<int>(v);
-  }
-
-  ensure_session(core);
-
-  xsql::thinclient::http_query_server_config cfg;
-  cfg.tool_name = "r2xsql";
-  cfg.port = port;
-  cfg.bind_address = "127.0.0.1";
-  cfg.use_queue = false;  // worker thread calls query_fn; it locks g_state.mu
-  cfg.query_fn = [](const std::string& body) -> std::string {
-    return plugin_raw_or_sql(body);
-  };
-  cfg.status_fn = []() {
-    return xsql::json{{"mode", "in-r2"}, {"tool", "r2xsql"}};
-  };
-
-  auto server = std::make_unique<xsql::thinclient::http_query_server>(cfg);
-  int bound_port = server->start();
-  if (bound_port < 0) {
-    char buf[128];
-    std::snprintf(buf, sizeof(buf),
-                  "r2xsql: failed to start HTTP server on port %d.", port);
-    r_cons_println(core->cons, buf);
-    return;
-  }
-
-  {
-    std::lock_guard<std::mutex> lock(g_state.mu);
-    g_state.http = std::move(server);
-    g_state.http_port = bound_port;
-    g_state.http_bind = "127.0.0.1";
-  }
-
-  char buf[160];
-  std::snprintf(buf, sizeof(buf), "r2xsql: HTTP server: http://127.0.0.1:%d",
-                bound_port);
-  r_cons_println(core->cons, buf);
-}
-#endif
-
-#if R2XSQL_HAS_MCP
-
-void handle_mcp_command(RCore* core, const char* tail) {
-  // tail points after "mcp": empty, " <port>", "-", or "?"
-  while (*tail == ' ' || *tail == '\t') ++tail;
-
-  if (*tail == '?') {
-    std::lock_guard<std::mutex> lock(g_state.mu);
-    if (g_state.mcp && g_state.mcp->is_running()) {
-      std::string s = r2xsql::format_mcp_status(g_state.mcp_port,
-                                               /*running=*/true,
-                                               g_state.mcp_bind);
-      r_cons_print(core->cons, s.c_str());
-    } else {
-      r_cons_println(core->cons, "r2xsql: MCP server not running.");
-    }
-    return;
-  }
-
-  if (*tail == '-') {
-    std::unique_ptr<r2xsql::McpServer> server;
-    {
-      std::lock_guard<std::mutex> lock(g_state.mu);
-      server = std::move(g_state.mcp);
-      g_state.mcp_port = 0;
-      g_state.mcp_bind.clear();
-    }
-    if (server) {
-      server->stop();
-      r_cons_println(core->cons, "r2xsql: MCP server stopped.");
-    } else {
-      r_cons_println(core->cons, "r2xsql: MCP server was not running.");
-    }
-    return;
-  }
-
-  // Start (with optional port). Refuse if already running.
-  {
-    std::lock_guard<std::mutex> lock(g_state.mu);
-    if (g_state.mcp && g_state.mcp->is_running()) {
-      r_cons_println(core->cons,
-                     "r2xsql: MCP server already running. Use `sql.mcp-` to stop it.");
-      return;
-    }
-  }
-
-  int port = 0;
-  if (*tail) {
-    char* endp = nullptr;
-    long v = std::strtol(tail, &endp, 10);
-    if (endp != tail && v >= 0 && v <= 65535) port = static_cast<int>(v);
-  }
-
-  ensure_session(core);
-
-  auto server = std::make_unique<r2xsql::McpServer>();
-  // use_queue=false: SSE worker thread calls our query callback directly.
-  // The callback acquires g_state.mu, so MCP queries serialize against
-  // any concurrent `sql.<query>` from r2's command thread.
-  r2xsql::QueryCallback cb = [core](const std::string& sql) -> std::string {
-    std::lock_guard<std::mutex> lock(g_state.mu);
-    if (!g_state.session) {
-      return xsql::json{{"success", false},
-                        {"error", "session not initialized"}}.dump();
-    }
-    try {
-      return plugin_query_envelope(*g_state.session, sql);
-    } catch (const std::exception& e) {
-      return xsql::json{{"success", false}, {"error", e.what()}}.dump();
-    } catch (...) {
-      return xsql::json{{"success", false},
-                        {"error", "unknown exception"}}.dump();
-    }
-  };
-
-  int bound_port = server->start(port, cb, "127.0.0.1", /*use_queue=*/false);
-  if (bound_port <= 0) {
-    char buf[128];
-    std::snprintf(buf, sizeof(buf),
-                  "r2xsql: failed to start MCP server on port %d.", port);
-    r_cons_println(core->cons, buf);
-    return;
-  }
-
-  {
-    std::lock_guard<std::mutex> lock(g_state.mu);
-    g_state.mcp = std::move(server);
-    g_state.mcp_port = bound_port;
-    g_state.mcp_bind = "127.0.0.1";
-  }
-
-  std::string info = r2xsql::format_mcp_info(bound_port, "127.0.0.1");
-  r_cons_print(core->cons, info.c_str());
-}
-
-#endif  // R2XSQL_HAS_MCP
-
-std::string render_table(const xsql::Result& res) {
-  std::ostringstream oss;
-
-  if (!res.ok()) {
-    oss << "ERROR: " << res.error << "\n";
-    return oss.str();
-  }
-
-  // Header
-  for (size_t c = 0; c < res.columns.size(); ++c) {
-    if (c) oss << "\t";
-    oss << res.columns[c];
-  }
-  oss << "\n";
-
   for (const auto& row : res.rows) {
+    // r_table_add_row_list takes ownership of the list; r_list_newf(free) +
+    // strdup is the idiom libr uses for this itself (cmd_anal.inc.c, and
+    // markdown.c). wrap_items() may rewrite a cell in place, so the cells
+    // must be individually owned, writable allocations -- which they are.
+    RList* items = r_list_newf(free);
     for (size_t c = 0; c < row.size(); ++c) {
-      if (c) oss << "\t";
-      oss << row[c];
+      r_list_append(items, strdup(row[c].c_str()));
     }
-    oss << "\n";
+    r_table_add_row_list(t, items);
   }
-  oss << "(" << res.rows.size() << " rows)\n";
-  return oss.str();
+
+  std::string out;
+  if (r_table_query(t, table_query)) {
+    if (char* s = r_table_tostring(t)) {
+      out.assign(s);
+      free(s);
+    }
+  } else {
+    // The help path is intercepted in dispatch() before we get here, so a
+    // false return at this point means the query itself was rejected.
+    out = "ERROR: invalid table query\n";
+  }
+  r_table_free(t);
+  return out;
+}
+
+// `sql.tables` / `sql.views`, answered by QUERYING sqlite_master rather than
+// printing a hardcoded list.
+//
+// That is deliberate and it is not just tidiness: the hardcoded list this
+// replaces had drifted badly, naming 33 tables and 8 views when the build
+// actually exposed 47 and 13 -- `classes`, `patches`, `registers`, `relocs`,
+// `rop_gadgets`, `syscalls`, `callers`, `callees`, `names` and others were
+// simply invisible to anyone reading the help. A catalog derived from the
+// schema cannot drift from the schema.
+bool print_catalog(RCore* core, const char* kind) {
+  ensure_session(core);
+  std::string out;
+  {
+    std::lock_guard<std::mutex> lock(g_state.mu);
+    try {
+      const std::string sql =
+          std::string("SELECT name FROM sqlite_master WHERE type = '") + kind +
+          "' ORDER BY name";
+      out = render_table(core, g_state.session->query(sql), "");
+    } catch (const std::exception& e) {
+      out = std::string("EXCEPTION: ") + e.what() + "\n";
+    } catch (...) {
+      out = "EXCEPTION: unknown\n";
+    }
+  }
+  r_cons_print(core->cons, out.c_str());
+  return true;
 }
 
 bool dispatch(RCore* core, const char* input) {
   if (!input) return false;
 
+  // Three forms, told apart by the character immediately after `sql`:
+  //
+  //   sqlj <SQL>              JSON envelope (r2's own `j`-suffix convention,
+  //                           as in afl/aflj, iz/izj)
+  //   sql,<tablequery> <SQL>  text, filtered/formatted by r2's table query
+  //   sql <SQL>               text
+  //
+  // The table query sits in the SUFFIX rather than the tail, and that is
+  // forced, not a style choice. r2's table-query language reserves ',' and '/'
+  // as its delimiters, and every other r2 command that takes a payload plus a
+  // query (`pd,`, `abl,`) splits on the FIRST SPACE -- which for us would land
+  // in the middle of a SELECT. `is,`/`iz,` solve it the other way round, and we
+  // copy them exactly: scan to the first space, that is the query, the rest is
+  // SQL. The two grammars then cannot collide no matter what the SQL contains.
+  //
+  // Both are detected before the whitespace and `.` strips, so `sqlj`,
+  // `sqlj <SQL>`, `sqlj.<SQL>` and `sqlj?` all behave like their `sql`
+  // counterparts.
+  bool as_json = false;
+  std::string table_query;
+  if (*input == 'j') {
+    as_json = true;
+    ++input;
+  } else if (*input == ',') {
+    ++input;
+    if (const char* sp = std::strchr(input, ' ')) {
+      table_query.assign(input, static_cast<size_t>(sp - input));
+      input = sp + 1;
+    } else {
+      table_query.assign(input);
+      input += std::strlen(input);
+    }
+    // r_table_query prints its own help with eprintf() -- i.e. to stderr,
+    // which over `=h` is invisible: the client sees HTTP 200 and an empty
+    // body, the same silent-failure shape a refused `Ps` has. Intercept it and
+    // print through r_cons so `sql,?` answers on every transport, not just at
+    // a local console.
+    const std::string kHelp = ":help";
+    const bool wants_help =
+        table_query == "?" ||
+        (table_query.size() >= kHelp.size() &&
+         table_query.compare(table_query.size() - kHelp.size(), kHelp.size(),
+                             kHelp) == 0);
+    if (wants_help) {
+      r_cons_println(core->cons, r_table_help());
+      return true;
+    }
+  }
+
   // Strip leading whitespace.
   while (*input == ' ' || *input == '\t') ++input;
 
-  // Top-level help: `sql` or `sql?`.
+  // Top-level help: `sql` alone, or `sql?`.
   if (*input == '\0' || std::strcmp(input, "?") == 0) {
     print_help(core);
     return true;
   }
 
-  // The dotted namespace is reserved for plugin subcommands, never SQL.
-  if (std::strcmp(input, ".") == 0 || std::strcmp(input, ".?") == 0) {
-    print_dot_help(core);
-    return true;
-  }
-
-  if (std::strcmp(input, ".tables") == 0 ||
-      std::strcmp(input, ".tables?") == 0) {
-    print_tables(core);
-    return true;
-  }
-
-  if (std::strcmp(input, ".views") == 0 ||
-      std::strcmp(input, ".views?") == 0) {
-    print_views(core);
-    return true;
-  }
-
-  // Plugin-only subcommands prefixed inside the `sql.` namespace.
-  // `sql.http [port]` / `sql.http-` / `sql.http?`
-  if (std::strncmp(input, ".http", 5) == 0) {
-    const char* rest = input + 5;
-    if (*rest == '\0' || *rest == ' ' || *rest == '\t' ||
-        *rest == '-' || *rest == '?') {
-#if defined(XSQL_HAS_THINCLIENT)
-      handle_http_command(core, rest);
-#else
-      r_cons_println(core->cons,
-                     "r2xsql: HTTP support is not available in this build.");
-#endif
-      return true;
-    }
-  }
-
-  // `sql.mcp [port]` / `sql.mcp-` / `sql.mcp?`
-  if (std::strncmp(input, ".mcp", 4) == 0) {
-    const char* rest = input + 4;
-    if (*rest == '\0' || *rest == ' ' || *rest == '\t' ||
-        *rest == '-' || *rest == '?') {
-#if R2XSQL_HAS_MCP
-      handle_mcp_command(core, rest);
-#else
-      r_cons_println(core->cons,
-                     "r2xsql: MCP support is not available in this build.");
-#endif
-      return true;
-    }
-  }
-
+  // The dotted namespace is reserved for plugin subcommands and NEVER carries
+  // SQL. It used to be a `sql.<SQL>` shorthand; that is gone, because the two
+  // cannot coexist -- `sql.tables` would be ambiguous between a subcommand and
+  // a (nonsense) statement, and a mistyped subcommand would silently become a
+  // SQL syntax error instead of saying so.
   if (*input == '.') {
-    r_cons_printf(core->cons, "Unknown sql subcommand: sql%s\n", input);
-    r_cons_println(core->cons, "See `sql.?` for available subcommands.");
+    const char* sub = input + 1;
+    if (*sub == '\0' || std::strcmp(sub, "?") == 0) {
+      print_dot_help(core);
+      return true;
+    }
+    if (std::strcmp(sub, "tables") == 0 || std::strcmp(sub, "tables?") == 0) {
+      return print_catalog(core, "table");
+    }
+    if (std::strcmp(sub, "views") == 0 || std::strcmp(sub, "views?") == 0) {
+      return print_catalog(core, "view");
+    }
+    std::string msg = "Unknown sql subcommand: sql" + std::string(input) +
+                      "\nSee `sql.?` for the available subcommands, or drop "
+                      "the '.' to run SQL.\n";
+    r_cons_print(core->cons, msg.c_str());
     return true;
   }
 
@@ -476,16 +291,37 @@ bool dispatch(RCore* core, const char* input) {
 
   std::string out;
   {
-    // Serialize against the HTTP/MCP server callbacks, which run on their own
-    // threads and also touch g_state.session / SQLite under this same mutex.
+    // Serializes this command against itself, and that is worth more than it
+    // looks: under `=h&` radare2 runs the HTTP handler on a second thread over
+    // the same RCore, and it reaches us by calling plugin_call directly -- so
+    // an HTTP `sqlj` and a console `sql` both arrive here and take this lock.
+    // Two SQL commands therefore cannot interleave, at this lock and then at
+    // Session::query_mu_ and the backend's own.
+    //
+    // What it does NOT protect against is a NON-SQL r2 command: `aaa` typed at
+    // the console while a SELECT is mid-scan rewrites RAnal under our walk and
+    // takes none of these locks. A plugin-local mutex cannot fix that; it is a
+    // host-level problem (r2's own source marks the spot in rtr_http with
+    // `TODO: handle mutex lock/unlock here`).
     std::lock_guard<std::mutex> lock(g_state.mu);
     try {
-      auto res = g_state.session->query(input);
-      out = render_table(res);
+      if (as_json) {
+        // run_script envelope: multi-statement, and carries the SQL-NULL
+        // mask that render_table() cannot express.
+        out = plugin_query_envelope(*g_state.session, input);
+        out += "\n";
+      } else {
+        auto res = g_state.session->query(input);
+        out = render_table(core, res, table_query.c_str());
+      }
     } catch (const std::exception& e) {
-      out = std::string("EXCEPTION: ") + e.what() + "\n";
+      out = as_json
+                ? xsql::json{{"success", false}, {"error", e.what()}}.dump() + "\n"
+                : std::string("EXCEPTION: ") + e.what() + "\n";
     } catch (...) {
-      out = "EXCEPTION: unknown\n";
+      out = as_json ? xsql::json{{"success", false},
+                                 {"error", "unknown exception"}}.dump() + "\n"
+                    : std::string("EXCEPTION: unknown\n");
     }
   }
   r_cons_print(core->cons, out.c_str());
@@ -498,8 +334,20 @@ bool plugin_call(RCorePluginSession* ctx, const char* input) {
   // claim the ones that start with our prefix.
   if (std::strncmp(input, "sql", 3) != 0) return false;
   const char* rest = input + 3;
-  // Accept "sql", "sql ", "sql?", "sql.", "sql.<anything>"
-  if (*rest != '\0' && *rest != ' ' && *rest != '?' && *rest != '.') {
+  // Accept "sql"/"sqlj" followed by end, space, '?' or '.', plus "sql," for
+  // the table-query form. The lookahead past 'j' matters: without it "sqljunk"
+  // would be claimed and mis-parsed as a JSON query for "unk".
+  //
+  // ',' is accepted only on the bare `sql` -- there is no `sqlj,`. The table
+  // query shapes a text table; the JSON envelope is not an RTable and has
+  // nothing for it to act on.
+  if (*rest == 'j') {
+    const char* term = rest + 1;
+    if (*term != '\0' && *term != ' ' && *term != '?' && *term != '.') {
+      return false;
+    }
+  } else if (*rest != '\0' && *rest != ' ' && *rest != '?' && *rest != '.' &&
+             *rest != ',') {
     return false;
   }
   return dispatch(ctx->core, rest);
@@ -510,28 +358,8 @@ bool plugin_init(RCorePluginSession* /*ctx*/) {
 }
 
 bool plugin_fini(RCorePluginSession* /*ctx*/) {
-#if defined(XSQL_HAS_THINCLIENT)
   {
-    std::unique_ptr<xsql::thinclient::http_query_server> http_server;
-    {
-      std::lock_guard<std::mutex> lock(g_state.mu);
-      http_server = std::move(g_state.http);
-      g_state.http_port = 0;
-      g_state.http_bind.clear();
-    }
-    if (http_server) http_server->stop();
   }
-#endif
-#if R2XSQL_HAS_MCP
-  std::unique_ptr<r2xsql::McpServer> server;
-  {
-    std::lock_guard<std::mutex> lock(g_state.mu);
-    server = std::move(g_state.mcp);
-    g_state.mcp_port = 0;
-    g_state.mcp_bind.clear();
-  }
-  if (server) server->stop();
-#endif
   std::lock_guard<std::mutex> lock(g_state.mu);
   g_state.session.reset();
   g_state.bound_core = nullptr;

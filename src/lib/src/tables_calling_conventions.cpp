@@ -100,6 +100,15 @@ std::string join_comma(const std::vector<std::string>& parts) {
 
 void register_calling_conventions_table(Session& s) {
   auto def = xsql::cached_table<CallingConventionRow>("calling_conventions")
+    // NOTE: deliberately does NOT call .no_shared_cache(). The convention
+    // set is static for the session's (arch,bits) and nothing in r2xsql
+    // edits it, so repeated queries reuse the first build. This is pinned
+    // by test_calling_conventions.cpp ("afclj is issued once").
+    //
+    // Caveat that predates cooperative mode and is now reachable: that
+    // rationale assumes the arch is fixed for the session. A second
+    // client on the same core CAN change it (`e asm.arch=...`, `o <file>`),
+    // and this table will keep serving the old arch's conventions.
     .estimate_rows([]() -> size_t { return 16; })
     .cache_builder([be = s.backend_ptr()](std::vector<CallingConventionRow>& rows) {
       // `afclj` emits a JSON OBJECT keyed by convention name (cmd_afcl wraps

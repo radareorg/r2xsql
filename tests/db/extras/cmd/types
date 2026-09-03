@@ -1,0 +1,49 @@
+# r2xsql: the type system.
+#
+# Types are DEFINED with radare2's own `td`, not through SQL. r2xsql used to
+# ship an r2xsql_type_define() scalar function for this; it was removed,
+# because `td` reaches the same place over the same transport and a scalar
+# function wrapping a command is a second door onto one room. r2xsql READS the
+# result through the `types` / `types_members` tables.
+#
+# The `td` command must be r2-quoted: a C declaration's ';' and '{'/'}' are
+# also radare2's command separators.
+
+NAME=td defines a struct that the types table reads back
+FILE=build/fixture.bin
+ARGS=-N
+CMDS=<<EOF
+"td struct R2xsqlPt { int x; char name[8]; };"
+"sql,:quiet SELECT count(*) = 1 FROM types WHERE name = 'R2xsqlPt' AND kind = 'struct'"
+EOF
+EXPECT=<<EOF
+1
+EOF
+RUN
+
+NAME=types_members lists the members td declared
+FILE=build/fixture.bin
+ARGS=-N
+CMDS=<<EOF
+"td struct R2xsqlPt2 { int a; int b; };"
+"sql,:quiet SELECT count(*) = 2 FROM types_members WHERE type_name = 'R2xsqlPt2' AND member_name IN ('a','b')"
+EOF
+EXPECT=<<EOF
+1
+EOF
+RUN
+
+NAME=types INSERT creates an empty shell and DELETE removes it
+FILE=build/fixture.bin
+ARGS=-N
+CMDS=<<EOF
+"sql,:quiet INSERT INTO types (name, kind) VALUES ('R2xsqlShell', 'union')"
+"sql,:quiet SELECT count(*) = 1 FROM types WHERE name = 'R2xsqlShell' AND kind = 'union'"
+"sql,:quiet DELETE FROM types WHERE name = 'R2xsqlShell'"
+"sql,:quiet SELECT count(*) = 0 FROM types WHERE name = 'R2xsqlShell'"
+EOF
+EXPECT=<<EOF
+1
+1
+EOF
+RUN

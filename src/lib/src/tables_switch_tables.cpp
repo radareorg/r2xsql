@@ -34,6 +34,7 @@
 #include "tables.hpp"
 #include "direct.hpp"
 #include "json_utils.hpp"
+#include "table_utils.hpp"
 
 namespace r2xsql {
 
@@ -173,13 +174,18 @@ class SwitchTablesGen : public xsql::Generator<SwitchTableRow> {
 };
 
 // Pushdown for `WHERE func_addr = <fa>`: one `afbj @ <fa>`, or the direct
-// API's `blocks_in_func`.
+// API's `blocks_in_func`. `fa` must be a function START — see
+// `table_utils::func_addr_pushdown_ok` for why a mid-function address has to
+// answer with nothing rather than with its owner's switches.
 class SwitchTablesInFuncIterator : public xsql::RowIterator {
   std::vector<SwitchTableRow> rows_;
   size_t i_ = 0;
   bool started_ = false;
  public:
-  SwitchTablesInFuncIterator(Backend* be, int64_t fa) : rows_(switches_for_func(be, fa)) {}
+  SwitchTablesInFuncIterator(Backend* be, int64_t fa) {
+    if (!table_utils::func_addr_pushdown_ok(be, fa)) return;
+    rows_ = switches_for_func(be, fa);
+  }
   bool next() override {
     if (!started_) started_ = true; else ++i_;
     return i_ < rows_.size();

@@ -7,6 +7,7 @@ cmake-build-*/
 # meson: fetched subprojects + cache (keep the tracked *.wrap and packagefiles/)
 /subprojects/libxsql/
 /subprojects/packagecache/
+/subprojects/.wraplock
 
 # CMake artifacts
 CMakeFiles/

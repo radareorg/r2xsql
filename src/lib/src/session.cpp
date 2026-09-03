@@ -60,38 +60,6 @@ xsql::Result make_pragma_error(const std::string& error) {
   return r;
 }
 
-std::string declared_type_name(const std::string& declaration) {
-  static const std::regex tagged(
-      R"(^\s*(?:struct|union|enum)\s+([A-Za-z_][A-Za-z0-9_]*))",
-      std::regex::ECMAScript);
-  std::smatch match;
-  if (std::regex_search(declaration, match, tagged)) return match[1].str();
-
-  static const std::regex pointer_declarator(
-      R"(\(\s*\*\s*([A-Za-z_][A-Za-z0-9_]*)\s*\))",
-      std::regex::ECMAScript);
-  if (std::regex_search(declaration, match, pointer_declarator)) {
-    return match[1].str();
-  }
-
-  static const std::regex typedef_prefix(
-      R"(^\s*typedef(?:\s|$))", std::regex::ECMAScript);
-  if (std::regex_search(declaration, typedef_prefix)) {
-    static const std::regex trailing_name(
-        R"(([A-Za-z_][A-Za-z0-9_]*)\s*(?:\[[^\]]*\]\s*)*;?\s*$)",
-        std::regex::ECMAScript);
-    if (std::regex_search(declaration, match, trailing_name)) {
-      return match[1].str();
-    }
-    return "";
-  }
-
-  static const std::regex function_name(
-      R"(([A-Za-z_][A-Za-z0-9_]*)\s*\()", std::regex::ECMAScript);
-  return std::regex_search(declaration, match, function_name)
-             ? match[1].str()
-             : "";
-}
 
 }  // namespace
 
@@ -187,89 +155,19 @@ void Session::register_functions_() {
       }
     }));
 
-  // Project persistence as a SQL surface — save/open a project mid-session
-  // without exiting. These run inside the query lock (db_.query holds
-  // query_mu_), so they call the backend directly rather than Session::raw_cmd
-  // (which would re-acquire the same lock and deadlock).
-  Backend* be = backend_.get();
-  db_.register_function("r2xsql_project_save", 1, xsql::ScalarFn(
-    [be](xsql::FunctionContext& ctx, int argc, xsql::FunctionArg* argv) {
-      if (argc < 1 || argv[0].is_null()) { ctx.result_text("error: project name required"); return; }
-      std::string name = argv[0].as_text();
-      if (!json_utils::valid_flag_name(name)) { ctx.result_text("error: invalid project name"); return; }
-      if (std::string e = table_utils::command_error_text(be->cmd("Ps " + name));
-          !e.empty()) {
-        ctx.result_text("error: project save failed: " + e);
-        return;
-      }
-      ctx.result_text("saved: " + name);
-    }));
-  db_.register_function("r2xsql_project_open", 1, xsql::ScalarFn(
-    [be](xsql::FunctionContext& ctx, int argc, xsql::FunctionArg* argv) {
-      if (argc < 1 || argv[0].is_null()) { ctx.result_text("error: project name required"); return; }
-      std::string name = argv[0].as_text();
-      if (!json_utils::valid_flag_name(name)) { ctx.result_text("error: invalid project name"); return; }
-      if (std::string e = table_utils::command_error_text(be->cmd("P " + name));
-          !e.empty()) {
-        ctx.result_text("error: project open failed: " + e);
-        return;
-      }
-      ctx.result_text("opened: " + name);
-    }));
-  // Define a type from a one-line C declaration (`td "<decl>"`), the
-  // create-counterpart to DELETE FROM types (a struct decl doesn't fit the
-  // types table's columns).
+  // Project save/open used to live here as r2xsql_project_save/open, and a
+  // full type declaration as r2xsql_type_define. All three are gone: r2's own
+  // `Ps`/`P` and `td` do exactly the same thing, over the same transport as
+  // any SQL, so each was a second door onto one room.
   //
-  // This is the write with the genuine adversarial surface in the type
-  // system: valid_c_declaration below allows `;`/`{`/`}` (needed for C
-  // declarator syntax), which are ALSO radare2's own command-chaining/
-  // grouping characters. Dispatches through Backend::cmd_noeval on the
-  // in-process (libr) backend, seeked to table_utils::kTypeSystemAnchorAddr
-  // (table_utils.hpp) since `td` is not address-scoped at all (verified
-  // against cmd_type.inc.c) -- an ADDITIONAL structural layer alongside
-  // valid_c_declaration's charset restriction and the r2_quote wrapping
-  // below, never a replacement for either. The no-eval leg takes the
-  // declaration completely unquoted: r_cmd_call never re-scans it for
-  // ';'/'{'/'}' the way r_core_cmd0 does, so there is nothing for a quote
-  // wrapper to protect there (and wrapping it would corrupt the declaration,
-  // since cmd_noeval has no evaluator left to strip the quotes back off). On
-  // every other backend (r2pipe, mock) cmd_noeval reports unsupported and the
-  // exact same r2_quote-wrapped `cmd()` string this function always issued
-  // runs unchanged.
-  db_.register_function("r2xsql_type_define", 1, xsql::ScalarFn(
-    [be](xsql::FunctionContext& ctx, int argc, xsql::FunctionArg* argv) {
-      if (argc < 1 || argv[0].is_null()) { ctx.result_text("error: C declaration required"); return; }
-      std::string decl = argv[0].as_text();
-      if (!json_utils::valid_c_declaration(decl)) {
-        ctx.result_text(
-            "error: declaration must be one line and contain only safe C declarator syntax");
-        return;
-      }
-      const std::string type_name = declared_type_name(decl);
-      if (type_name.empty()) {
-        ctx.result_text(
-            "error: declaration must define a named struct, union, enum, "
-            "typedef, or function prototype");
-        return;
-      }
-      // radare2's `td` requires the WHOLE command r2-quoted so the `;`/`{}` in
-      // the C declaration aren't treated as command separators/grouping --
-      // that quoting is only needed by the plain cmd() fallback below; the
-      // no-eval leg inside dispatch_type_write takes the unquoted form.
-      const std::string out = table_utils::dispatch_type_write(
-          be, "td " + decl, json_utils::r2_quote("td " + decl));
-      if (std::string e = table_utils::command_error_text(out); !e.empty()) {
-        ctx.result_text("error: type definition failed: " + e);
-        return;
-      }
-      // Read the declared name back because parser failures may be logged only
-      // to stderr and otherwise look like a successful no-output command.
-      if (table_utils::trim_ascii(be->cmd("tk " + type_name)).empty()) {
-        ctx.result_text("error: type definition was not present after td");
-        return;
-      }
-      ctx.result_text("ok");
-    }));
+  // `regexp` stays, and the distinction is the point. It is a genuine SQL
+  // OPERATOR, not a command in disguise: SQLite reserves the REGEXP syntax but
+  // ships no implementation, so `WHERE name REGEXP '...'` is a runtime error
+  // unless a host registers this function. No r2 command can express it.
+  //
+  // Structured type CRUD stays on the `types` table -- INSERT creates an empty
+  // struct/union/enum shell, DELETE removes a type. A declaration with real
+  // members, an underlying primitive or a signature is `td`.
 }
 
 void Session::detect_decompiler_() {

@@ -6,8 +6,10 @@
 # Follows the conventional radare2 plugin layout: a shared_module named
 # core_r2xsql, installed into radare2's own plugin dir (queried from
 # `radare2 -HR2_LIBR_PLUGINS`), built
-# against `pkg-config r_core`. This is the plugin-only build; CMake remains the
-# primary/full build (CLI flavors, tests, MCP, Windows) -- see README.md.
+# against `pkg-config r_core`. Both build systems now produce the SAME single
+# artifact -- there are no CLI flavors and no MCP any more. CMake remains the
+# primary build (it also drives the test suites and is what Windows uses);
+# this path exists because r2's ecosystem, and r2pm, build with meson.
 #
 # libxsql (r2xsql's SQL core) is consumed as a meson subproject: the wrap in
 # subprojects/ fetches it and a packagefiles/ overlay supplies the meson.build,
@@ -44,7 +46,7 @@ threads = dependency('threads')
 xsql_dep = subproject('libxsql').get_variable('xsql_dep')
 
 # --- r2xsql core (all of src/lib/src is the full/libr plugin set) -------------
-# The 43 core table adapters plus backend_libr.cpp + direct_libr.cpp, which are
+# The 42 core table adapters plus backend_libr.cpp + direct_libr.cpp, which are
 # gated by R2XSQL_HAVE_LIBR (=1 here: this build is the in-process libr flavor).
 r2xsql_srcs = files(
   'src/lib/src/backend_common.cpp',

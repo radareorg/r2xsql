@@ -44,23 +44,6 @@ bool opt_i64(const nlohmann::json& j, const char* key, int64_t& out) {
   return true;
 }
 
-// `axfj` emits no owning-function field at all — not `fcn_addr`, not the
-// `fcn_name` this table used to look for — so the command path resolves the
-// source's owner itself. `afij @ <addr>` lists the functions containing
-// <addr>; take the first, as radare2's own callers do. One command per
-// pushdown, resolved once and reused for every row.
-void resolve_owner(Backend* be, int64_t addr, int64_t& out, bool& has_out) {
-  auto info = be->cmd_json("afij @ " + json_utils::hex_addr(addr));
-  const nlohmann::json* obj = nullptr;
-  if (info.is_array() && !info.empty() && info[0].is_object()) {
-    obj = &info[0];
-  } else if (info.is_object()) {
-    obj = &info;
-  }
-  if (!obj) return;
-  has_out = opt_i64(*obj, "addr", out) || opt_i64(*obj, "offset", out);
-}
-
 std::vector<XrefRow> xrefs_to_addr(Backend* be, int64_t to_addr) {
   std::vector<XrefRow> rows;
   if (auto* api = be->direct()) {
@@ -92,9 +75,11 @@ std::vector<XrefRow> xrefs_from_addr(Backend* be, int64_t from_addr) {
   auto refs = be->cmd_json("axfj @ " + json_utils::hex_addr(from_addr));
   if (!refs.is_array() || refs.empty()) return rows;
 
+  // `axfj` emits no owning-function field at all — not `fcn_addr`, not the
+  // `fcn_name` this table used to look for — so the command path resolves the
+  // source's owner itself, once, and reuses the answer for every row.
   int64_t owner = 0;
-  bool has_owner = false;
-  resolve_owner(be, from_addr, owner, has_owner);
+  const bool has_owner = table_utils::resolve_func_owner(be, from_addr, owner);
 
   rows.reserve(refs.size());
   for (const auto& j : refs) {
@@ -121,11 +106,10 @@ std::vector<XrefRow> xrefs_in_func(Backend* be, int64_t func_addr) {
   // `afxj @ X` resolves the function CONTAINING X, so an address merely inside
   // a function would come back carrying its owner's rows — under a from_func
   // the caller never asked for. Confirm X is the start first; when it is not,
-  // this is one command and no rows rather than a wrong answer.
-  int64_t owner = 0;
-  bool has_owner = false;
-  resolve_owner(be, func_addr, owner, has_owner);
-  if (!has_owner || owner != func_addr) return rows;
+  // this is one command and no rows rather than a wrong answer. (This gate is
+  // the one the other `func_addr` pushdowns now share — see
+  // `table_utils::func_addr_pushdown_ok`.)
+  if (!table_utils::func_addr_pushdown_ok(be, func_addr)) return rows;
 
   auto refs = be->cmd_json("afxj @ " + json_utils::hex_addr(func_addr));
   if (!refs.is_array()) return rows;

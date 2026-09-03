@@ -26,16 +26,9 @@ target_include_directories(core_r2xsql PRIVATE
 )
 
 # core (backend-neutral) + the libr backend object lib (brings backend_libr +
-# Radare2::libr). Built only under R2XSQL_FULL_ENABLED.
+# Radare2::libr).
 target_link_libraries(core_r2xsql PRIVATE r2xsql::r2xsql r2xsql_libr Radare2::libr)
 target_compile_features(core_r2xsql PRIVATE cxx_std_20)
-
-if(R2XSQL_WITH_MCP)
-  target_sources(core_r2xsql PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/../common/mcp_server.cpp)
-  target_link_libraries(core_r2xsql PRIVATE fastmcpp_core)
-  target_compile_definitions(core_r2xsql PRIVATE R2XSQL_HAS_MCP=1)
-endif()
 
 if(WIN32)
   target_compile_definitions(core_r2xsql PRIVATE

@@ -29,12 +29,11 @@
 // needing a "skip ri->type != t" dedupe) does NOT apply here.
 // Confirmed empirically too: every `name` in a real `arpj` dump is unique
 // across the whole `reg_info` array (zero duplicates on a real x86-64 PE
-// fixture). **The dedupe idiom the roadmap flagged as "a real correctness
-// detail to reimplement" turned out not to apply to this command source --
-// it was only ever needed for a per-type re-query C-API walk, not for
-// `arpj`'s single already-partitioned emission.** Documented here rather
-// than silently dropped, since the roadmap explicitly called it out as an
-// open risk.
+// fixture). **The dedupe idiom that a per-type re-query would need turned
+// out not to apply to this command source -- it is only ever required for a
+// per-type C-API walk, not for `arpj`'s single already-partitioned
+// emission.** Recorded here rather than silently dropped, because the
+// absence of the dedupe looks like an omission until you know why.
 //
 // `role` is sourced from the SAME `arpj` payload's `alias_info` array --
 // `{"role":N,"role_str":"PC","reg":"rip"}` entries mapping a register ROLE
@@ -94,6 +93,14 @@ struct RegisterRow {
 
 void register_registers_table(Session& s) {
   auto def = xsql::cached_table<RegisterRow>("registers")
+    // Query-scoped, like every other live table. The shared cache is
+    // OPT-OUT and is built exactly once, and NOTHING in radare2 can
+    // invalidate it -- so without this the rows freeze for the life of
+    // the Session. That is survivable for a one-shot process and wrong
+    // for a long-lived shared session, where another client on the same
+    // core can change what this reads: the profile is per asm.arch and
+    // asm.bits, which `e asm.arch=...` and `o <file>` both change.
+    .no_shared_cache()
     .estimate_rows([]() -> size_t { return 160; })
     .cache_builder([be = s.backend_ptr()](std::vector<RegisterRow>& rows) {
       const std::string arch = table_utils::trim_ascii(be->cmd("e asm.arch"));

@@ -56,6 +56,72 @@ inline std::string command_error_text(const std::string& out) {
   return {};
 }
 
+// Resolve the function CONTAINING `addr` with one `afij @ <addr>`, which lists
+// the functions covering an address; take the first, as radare2's own callers
+// do. Returns false (leaving `out` untouched) when no function covers `addr` —
+// `afij` prints an empty array there, and an empty array is not a function at
+// address 0.
+inline bool resolve_func_owner(Backend* be, int64_t addr, int64_t& out) {
+  auto info = be->cmd_json("afij @ " + json_utils::hex_addr(addr));
+  const nlohmann::json* obj = nullptr;
+  if (info.is_array() && !info.empty() && info[0].is_object()) {
+    obj = &info[0];
+  } else if (info.is_object()) {
+    obj = &info;  // not every r2 build wraps this one in an array
+  }
+  if (!obj) return false;
+  for (const char* key : {"addr", "offset"}) {
+    auto it = obj->find(key);
+    if (it != obj->end() && it->is_number_integer()) {
+      out = it->get<int64_t>();
+      return true;
+    }
+  }
+  return false;
+}
+
+// Is `addr` the START of a function, rather than merely inside one? One
+// `afij`, unconditionally — no `direct()` shortcut.
+//
+// This is the check itself. `func_addr_pushdown_ok` below is the same check
+// plus the shortcut, and is what almost every caller wants; use THIS one only
+// at a site that is about to issue the command even on a direct backend.
+inline bool func_addr_is_start(Backend* be, int64_t addr) {
+  int64_t owner = 0;
+  return resolve_func_owner(be, addr, owner) && owner == addr;
+}
+
+// The gate a `WHERE func_addr = X` pushdown runs before issuing a scoped
+// per-function command (`afbj @ X`, `pdfj @ X`, `afxj @ X`).
+//
+// Those commands resolve the function CONTAINING X, not the one that STARTS at
+// it, so a mid-function X comes back with the owner's rows — which this table
+// would then tag `func_addr = X`, because X is all the pushdown was handed.
+// Those rows VIOLATE the constraint SQLite pushed down, and SQLite trusts a
+// filtered scan and never re-checks it: the query answers with a `func_addr`
+// no function has. Confirming X is a function START first costs one command
+// and returns no rows instead of wrong ones.
+//
+// COMMAND LEG ONLY. The direct (C-API) producers make the identical check
+// against `fcn->addr` in-process (see `direct.hpp`), so a backend that offers
+// one needs no command at all — and must not be made to issue one, or every
+// full scan would pay an extra `afij` per function on top of its own walk.
+//
+// THE SHORTCUT IS ABOUT WHICH PRODUCER RUNS, NOT WHICH BACKEND IS OPEN.
+// `be->direct()` being non-null only means a C-API producer EXISTS; it does not
+// mean this pushdown will reach it. `instructions` is the standing example: a
+// projection that reads `disasm`/`mnemonic` cannot use the C-API leg (it never
+// produces rendered text) and issues `pdfj @ X` on a direct backend like any
+// other. Waving that through on `direct()` alone left the full flavor answering
+// a mid-function `func_addr` with its owner's instructions while the pipe
+// flavor correctly answered nothing. A call site whose command path is
+// reachable on a direct backend must call `func_addr_is_start` on that path
+// instead of relying on this.
+inline bool func_addr_pushdown_ok(Backend* be, int64_t addr) {
+  if (be->direct()) return true;
+  return func_addr_is_start(be, addr);
+}
+
 inline size_t quick_count(Backend* be, std::string_view command, size_t fallback) {
   if (!be) return fallback;
   std::string out = trim_ascii(be->cmd(command));
@@ -69,8 +135,8 @@ inline size_t quick_count(Backend* be, std::string_view command, size_t fallback
 
 // Fixed seek anchor for structural no-eval dispatch of a command that is NOT
 // address-scoped at all -- currently only radare2's type-system commands,
-// `td`/`t-` (see tables_types.cpp's INSERT/DELETE and session.cpp's
-// r2xsql_type_define). Every previously-ported table's write had a real row
+// `td`/`t-` (see tables_types.cpp's INSERT/DELETE).
+// Every previously-ported table's write had a real row
 // address to pass to `Backend::cmd_noeval`; the type system has none (a
 // struct/union/enum definition is not tied to any address). Verified against
 // radare2's own source rather than assumed: `cmd_type.inc.c`'s handlers for

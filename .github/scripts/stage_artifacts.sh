@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Stage r2xsql release trees from a completed build:
-#   dist/overlay/  — extract ON TOP OF a radare2 install prefix (libr drop-in):
-#                      bin/r2xsql[.exe]            (next to radare2[.exe])
-#                      <r2-plugin-dir>/core_r2xsql.*  (r2's own plugin search dir)
-#   dist/pipe/     — standalone pipe-only r2xsql[.exe] (needs radare2 on PATH)
+# Stage the r2xsql release tree from a completed build:
+#   dist/plugin/  — extract ON TOP OF a radare2 install prefix:
+#                     <r2-plugin-dir>/core_r2xsql.*  (r2's own plugin search dir)
+#
+# r2xsql ships ONE artifact, the in-r2 core plugin. There is no CLI and no
+# server of its own; radare2 hosts it and carries the `sql` / `sqlj` commands
+# over the console, r2pipe, `=h` and MCP alike.
 #
 # The plugin's relative path is derived from the installed prefix layout so the
-# overlay drops the plugin exactly where this r2 looks for it — Linux uses
+# archive drops it exactly where this r2 looks for it — Linux uses
 # <libdir>/radare2/<ver>/, Windows uses lib/plugins.
 set -euo pipefail
 
@@ -21,7 +23,7 @@ fi
 # radare2's system plugin dir, RELATIVE to the prefix, derived from the installed
 # layout (we do NOT run radare2 — `radare2 -H` drops into r2pipe mode under CI
 # pipes). The default meson build links the core plugins statically, so the
-# plugin dir often does NOT exist on disk after install (the overlay creates it):
+# plugin dir often does NOT exist on disk after install (we create it):
 #   * Windows (meson): <prefix>/lib/plugins                 — and there is no
 #     */radare2/<version> dir at all, so the scan below finds nothing.
 #   * Unix    (meson): <prefix>/<libdir>/radare2/<version>  (libdir = lib, lib64,
@@ -29,6 +31,10 @@ fi
 #     libr_core landed.
 # `|| true` keeps an empty find from tripping pipefail+errexit (which would kill
 # the script before it prints anything — exactly the Windows symptom).
+#
+# This derivation is now the WHOLE product: it used to be one half of a
+# two-tree stage, so a bug here degraded an overlay. Now a bug here ships the
+# only artifact to the wrong path.
 REL_PLUGIN=""
 if [ -d "${PFX}/lib/plugins" ]; then
   REL_PLUGIN="lib/plugins"
@@ -54,7 +60,7 @@ fi
 if [ -z "${REL_PLUGIN}" ]; then
   REL_PLUGIN="lib/plugins"
 fi
-echo "radare2 plugin overlay dir: ${REL_PLUGIN}"
+echo "radare2 plugin dir: ${REL_PLUGIN}"
 
 # Helper: copy the first path that exists.
 copy_first() {
@@ -68,59 +74,54 @@ copy_first() {
 }
 
 rm -rf dist
-mkdir -p "dist/overlay/bin" "dist/overlay/${REL_PLUGIN}" "dist/pipe"
+mkdir -p "dist/plugin/${REL_PLUGIN}"
 
-# Both flavors come from the SAME build tree (one configure with
-# R2XSQL_BUILD_FULL=ON): r2xsql (pipe), r2xsql-full (libr CLI), core_r2xsql (plugin).
-
-# --- overlay: full (libr) CLI + in-r2 plugin ---
-copy_first "dist/overlay/bin/" \
-  build/bin/r2xsql-full build/bin/r2xsql-full.exe \
-  build/bin/Release/r2xsql-full.exe build/src/cli/r2xsql-full build/src/cli/Release/r2xsql-full.exe
-
-copy_first "dist/overlay/${REL_PLUGIN}/" \
+copy_first "dist/plugin/${REL_PLUGIN}/" \
   build/bin/core_r2xsql.so build/bin/core_r2xsql.dylib build/bin/core_r2xsql.dll \
   build/bin/Release/core_r2xsql.dll build/src/plugin/core_r2xsql.so \
   build/src/plugin/Release/core_r2xsql.dll
 
-# --- pipe-only: standalone single binary (same build tree) ---
-copy_first "dist/pipe/" \
-  build/bin/r2xsql build/bin/r2xsql.exe \
-  build/bin/Release/r2xsql.exe build/src/cli/r2xsql build/src/cli/Release/r2xsql.exe
-
-cat > dist/overlay/README.txt <<EOF
-r2xsql-full — radare2 drop-in (overlay, embedded/libr flavor)
+cat > dist/plugin/README.txt <<EOF
+r2xsql — SQL over a live radare2 session (in-r2 plugin)
 
 Extract this archive ON TOP OF your radare2 install prefix (the directory
 that contains bin/radare2[.exe]). It adds:
 
-  bin/r2xsql-full[.exe]          full CLI + HTTP/MCP server (in-process libr)
-  ${REL_PLUGIN}/core_r2xsql.*    in-r2 plugin (load inside r2: L core_r2xsql.<ext>)
+  ${REL_PLUGIN}/core_r2xsql.*    the plugin
 
-Because r2xsql-full then sits next to radare2[.exe], the libr backend finds
-radare2's data dir (share/) automatically, so the 'types' table and
-ordinal imports resolve fully.
+Confirm it loaded, and check its version:
 
-Usage:
-  r2xsql-full -s <file> -q "SELECT name FROM funcs LIMIT 5"
-  radare2 <file>     then inside r2:   sql SELECT * FROM funcs
+  radare2 -q -c 'Lcj' /bin/ls | grep r2xsql
 
-(For a portable build that needs no co-location, see the pipe-only r2xsql.)
+Usage — two commands, inside radare2:
 
-Built against radare2 ${R2_REF}.
-EOF
+  sql  <SQL>     tab-separated text table (for a human)
+  sqlj <SQL>     JSON envelope (for a program): multiple statements, real NULLs
 
-cat > dist/pipe/README.txt <<EOF
-r2xsql — pipe-only single binary
+  radare2 -q -A -c '"sqlj SELECT name, size FROM funcs LIMIT 5"' <file>
 
-A standalone r2xsql[.exe] with NO radare2 libraries linked. It drives
-radare2 over a pipe (--r2pipe), so it only needs radare2[.exe] somewhere
-on PATH at runtime. Place it anywhere.
+TWO THINGS THAT FAIL SILENTLY IF YOU MISS THEM:
 
-Usage:
-  r2xsql -s <file> -q "SELECT name FROM funcs LIMIT 5"
+  1. WRAP THE COMMAND IN DOUBLE QUOTES. radare2's parser claims '>' and '|'
+     before the plugin runs, so an unquoted
+         sqlj SELECT name FROM funcs WHERE size > 100
+     returns NOTHING and writes a file named '100'. The single-quote form
+     works at the console but still returns nothing over HTTP — use '"'.
 
-Built against radare2 ${R2_REF} (API-compatible r2 on PATH is sufficient).
+  2. PASS -A (or run 'aaa'). radare2 does not analyze by default, so without
+     it every funcs/xrefs query returns zero rows.
+
+Serving it over HTTP is radare2's own server — there is no r2xsql port:
+
+  radare2 -e http.sandbox=false -c 'aaa; =h 9090' <file>
+  curl -X POST http://127.0.0.1:9090/cmd/ -d '"sqlj SELECT * FROM binary"'
+
+Wait for r2's 'open http://' line on stderr before the first request. Stop it
+with 'q!!' — plain 'q!' does not. Bind to 127.0.0.1 only: r2's HTTP server is
+not a security boundary.
+
+ABI: this plugin is locked to radare2 ${R2_REF} and will not load into any
+other build. Rebuild it when you upgrade radare2.
 EOF
 
 echo "=== staged tree ==="

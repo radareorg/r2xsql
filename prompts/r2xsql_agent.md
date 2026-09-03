@@ -72,14 +72,86 @@ every function.
 
 ---
 
-## Command-Line Interface
+## Running r2xsql
+
+r2xsql is a radare2 **core plugin** — `core_r2xsql` — and nothing else. There is
+no `r2xsql` binary, no r2xsql server and no r2xsql port. It registers two
+commands inside radare2:
+
+| Command | Output |
+|---|---|
+| `sql <SQL>` | a radare2 table (for a human at the console) |
+| `sql,<tablequery> <SQL>` | the same table, shaped by r2's table query |
+| `sqlj <SQL>` | the JSON envelope (for a program) |
+
+Discovery follows r2's `?` conventions: `sql?` for the command, `sql,?` for the
+table-query language, `sql.?` for subcommands. `sql.tables` and `sql.views`
+list the real surface (they query `sqlite_master`, so they cannot go stale);
+you can get the same thing as data with
+`sqlj SELECT name, type FROM sqlite_master ORDER BY type, name`.
+**`sql.` is a subcommand namespace and never carries SQL** — `sql.SELECT 1` is
+refused, not executed.
+
+`sql` renders through radare2's own table API, so it honours `cfg.table.format`
+and `scr.utf8` like `afl,` or `iz,`. The `sql,` form feeds `r_table_query`,
+which supplies `:csv`, `:tsv`, `:json`, `:html`, `:r2`, `:quiet` and paging.
+The table query is a **suffix ending at the first space**, so it can never
+collide with the statement: `sql,:csv SELECT name, size FROM funcs`.
+**You are a program: use `sqlj`, not `sql,:json`** — see below for why.
+
+Because these are ordinary r2 commands, every transport radare2 already has
+carries them: the console, r2pipe, r2's HTTP server (`=h`), and MCP. That is
+the design — r2xsql does not need a transport of its own.
+
+`sqlj` is not just `sql` with different formatting, and **`sql,:json` is not a
+substitute for it.** It runs through `run_script`, so it executes **multiple
+statements** (one result object each), and it distinguishes **SQL NULL from the
+empty string**.
+
+A radare2 table can do neither. Its JSON serializer emits only numbers and
+strings — there is no `null` — and it drops any cell whose text is empty:
+
+```
+sql,:json SELECT NULL AS a, '' AS b, 'x' AS d   ->  [{"d":"x"}]
+sqlj      SELECT NULL AS a, '' AS b, 'x' AS d   ->  rows: [[null,"","x"]]
+```
+
+`a` and `b` do not return as null or empty — they vanish, indistinguishable
+from a column you never selected. Use `sqlj` for anything programmatic.
+
+### RULE 1: wrap the command in double quotes
+
+**Unwrapped queries fail silently — HTTP 200, empty body, no error anywhere.**
+
+radare2's command parser claims characters SQL uses constantly, *before* the
+plugin runs:
+
+- any command containing `>` returns an **empty result** unless it starts with
+  `"` (r2 reads it as "redirect output to a file");
+- any command containing `|` is piped **to the shell** under the same
+  exemption, with r2's sandbox switched off for that command.
+
+```bash
+# WRONG - returns nothing, and writes a file named `100`
+sqlj SELECT name FROM funcs WHERE size > 100
+# WRONG - `||` is SQL string concat; this reaches your shell
+sqlj SELECT a || b FROM t
+
+# RIGHT - wrap the whole command; the closing quote must be last
+"sqlj SELECT name FROM funcs WHERE size > 100"
+```
+
+The `'…'` single-quote form is a **trap, not an alternative**: it bypasses the
+rest of r2's parser so it works at the console, but both guards above test for
+`"` specifically, so over HTTP it still returns an empty body. `~` and `@`
+inside SQL `'…'` literals are already safe; `>` and `|` are not.
 
 ### Input and provenance
 
-Open a target with `-s <file>` (a binary, or a saved radare2 project). By
-default r2xsql runs radare2's auto-analysis (`aaa`) at startup; pass
-`--no-analyze` to skip it (faster open, but `funcs`/`xrefs` will be sparse until
-you analyze). Reusing a `--project` skips re-analysis entirely.
+radare2 opens the target; r2xsql sees whatever it opened. **radare2 does not
+analyze by default** — pass `-A` (or run `aaa`) or every `funcs`/`xrefs` query
+returns zero rows, which reads as a broken table rather than an unanalyzed
+binary. Opening a saved project with `-p NAME` skips re-analysis entirely.
 
 Always know **what binary** you are looking at before reasoning about results:
 
@@ -87,87 +159,102 @@ Always know **what binary** you are looking at before reasoning about results:
 SELECT key, value FROM binary ORDER BY key;
 ```
 
-### Invocation modes
+### The three ways to run it
+
+All three use the same commands; only the deployment differs.
 
 ```bash
-# one-shot query (multiple statements separated by ;)
-r2xsql -s ./target.exe -q "SELECT name, size FROM funcs ORDER BY size DESC LIMIT 10"
+# 1. BATCH - one shot, no server. -A runs `aaa`.
+radare2 -q -A -c '"sqlj SELECT name, size FROM funcs ORDER BY size DESC LIMIT 10"' ./target.exe
 
-# run a SQL script file
-r2xsql -s ./target.exe -f ./audit.sql
+# several statements in one session: several -c against the same RCore
+radare2 -q -A -w -c '"sql UPDATE flags SET name='"'"'aes_init'"'"' WHERE addr=0x401000"' \
+                 -c 'Ps demo' ./target.exe
 
-# interactive REPL
-r2xsql -s ./target.exe -i
+# 2. HEADLESS - a server nobody is watching
+radare2 -e http.sandbox=false -c 'aaa; =h 9090' ./target.exe
+#    then, for every query:
+curl -X POST http://127.0.0.1:9090/cmd/ -d '"sqlj SELECT * FROM binary"'
 
-# HTTP server (query repeatedly with no per-query startup cost)
-r2xsql -s ./target.exe --http 8080
-# then: curl -X POST http://127.0.0.1:8080/query --data "SELECT * FROM binary"
-
-# MCP server (for an MCP client / agent)
-r2xsql -s ./target.exe --mcp 9876
+# 3. SHARED SESSION - from inside an interactive r2 (or iaito's console)
+#    e http.sandbox=false
+#    =h& 9090
+#    ...then the same curls as (2). The human sees your writes.
 ```
 
-### CLI options
+Use **POST**, not `GET /cmd/<…>`: the POST body is taken verbatim and is not
+URL-decoded, and GET request lines truncate around 1500 bytes.
 
-| Option              | Meaning                                                          |
-|---------------------|-----------------------------------------------------------------|
-| `-s <file>`         | Open a binary or a saved radare2 project                         |
-| `-q "<sql>"`        | Run one SQL statement (or several, `;`-separated) and exit       |
-| `-f <file.sql>`     | Run a SQL script file                                            |
-| `-i`                | Interactive REPL                                                 |
-| `-w`, `--write`     | Open in **write mode**; persist analysis on exit (via `Ps`)      |
-| `--no-analyze`      | Skip the implicit `aaa` auto-analysis at startup                 |
-| `--project NAME`    | radare2 project name; reuses cached analysis, saves on exit if `-w` |
-| `--r2pipe`          | Force the r2pipe backend (spawn `radare2`) even in the full build |
-| `--r2-exe PATH`     | Path to the `radare2` executable for r2pipe (default: search PATH) |
-| `--http [port]`     | Start HTTP REST server (no port ⇒ random in **8100–8999**)       |
-| `--mcp [port]`      | Start MCP SSE server (no port ⇒ random in **9000–9999**)         |
-| `--bind <addr>`     | Bind address for `--http` / `--mcp` (default `127.0.0.1`)        |
-| `--token <tok>`     | Require a Bearer token on HTTP endpoints                         |
-| `--version`         | Print version and exit                                           |
-| `-h`, `--help`      | Print help and exit                                              |
+Raw radare2 commands go to the same endpoint — there is no SQL escape hatch to
+learn:
 
-### Two flavors, four backends
-
-r2xsql ships as **two executables built from one codebase**:
-
-| Binary       | Backend     | Notes                                                       |
-|--------------|-------------|------------------------------------------------------------|
-| `r2xsql`      | r2pipe      | **Pipe-only, always built.** Portable single binary; spawns `radare2` over a pipe. Needs `radare2` on `PATH`. Deploy anywhere. |
-| `r2xsql-full` | libr        | **In-process** (links radare2's libraries), no spawn. Faster *per query on a long-lived session*, NOT end-to-end (analysis dominates equally). **ABI-locked to the exact radare2 build it was compiled against** — never pair it with a different radare2. It detects and corrects the data-dir layout at open time, so it no longer has to live in radare2's `bin/`. |
-
-Backend selection at a glance:
-
-| Backend       | When to use                                                       |
-|---------------|------------------------------------------------------------------|
-| **r2pipe**    | `r2xsql` (or `--r2pipe`). Portable; spawns `radare2 -q0`. Always has the full data dir, since the spawned radare2 resolves its own `share/`. |
-| **libr**      | `r2xsql-full`. In-process; faster per-query on a long-lived session, not end-to-end. ABI-locked to one radare2 build; the data-dir layout is auto-corrected at open. |
-| **in-r2 plugin** | Already inside radare2: `L core_r2xsql.dll` then `sql <SQL>`.   |
-| **mock**      | Embedding/testing: a canned `{cmd → response}` map, no live radare2. |
-
-Pick `r2xsql` for portability, `r2xsql-full` for throughput on large binaries or
-many queries. Functionally the SQL surface is identical.
-
-### REPL commands and raw passthrough
-
-In the REPL, type SQL directly. A line beginning with `.` (after optional
-whitespace) is forwarded **raw to radare2** (the leading `.` is stripped);
-`.quit` / `.exit` / `exit` leave the REPL.
-
-```text
-sql> SELECT name FROM funcs LIMIT 5;
-sql> .pdf @ entry0          -- raw radare2: disassemble the entry function
-sql> .quit
+```bash
+curl -X POST http://127.0.0.1:9090/cmd/ -d 'afn parse_header @ 0x401000'
+curl -X POST http://127.0.0.1:9090/cmd/ -d 'pdf @ entry0'
 ```
 
-The same `.`-prefix works with `-q` (`r2xsql -s a.bin -q ".ij"`). Over HTTP, use
-a body that begins with `.r2cmd ` (see *Server Modes*).
+### Readiness, teardown, and two silent failures
+
+**Readiness.** radare2 prints `Starting http server...` and
+`open http://<host>:<port>/` on **stderr**, after the socket is bound and after
+`aaa` finishes. Wait for that line; do not sleep. A bind failure prints
+`Cannot listen on http.port` and **does not exit**, so treat it as fatal
+yourself. Under `=h&` the banner arrives *after* the command returns, and a
+bind collision retries forever — pick a free port first.
+
+**Teardown.** `Ps <name>` to save, then **`q!!`**. Plain `q!` does not stop the
+server.
+
+Two things that fail without telling you:
+
+- **Every response is HTTP 200**, even for an invalid command. The status code
+  carries no information; parse the body.
+- **`Ps` is refused while `http.sandbox` is true** (the default). The error goes
+  to the *server's* stderr, and the response is an empty body with HTTP 200 —
+  identical to success. Set `e http.sandbox=false`, and confirm a save with
+  `SELECT name FROM projects`.
+
+`e http.sandbox=false` is required for saves to work at all. Note that leaving
+it on buys little: at radare2's default `cfg.sandbox.grain=all` most sandbox
+guards never fire, and any command starting with `!` or `.`, or containing `|`,
+disables it outright. **The r2 HTTP server is not a security boundary — bind it
+to `127.0.0.1` and never point it at untrusted input.**
+
+### Concurrency
+
+Foreground `=h` is serialized: the accept loop *is* the main thread and nothing
+else touches the core.
+
+`=h&` runs the HTTP handler on a second thread over the **same** `RCore`,
+swapping `core->addr` / `core->block` / `core->config` per request with no lock
+— radare2's own source marks the spot `TODO: handle mutex lock/unlock here`.
+
+What that does and does not mean:
+
+- **Two SQL commands cannot collide.** r2's HTTP thread calls the plugin's
+  handler directly, so a `sqlj` over HTTP and a `sql` at the console take the
+  same plugin mutex, then the session lock, then the backend lock.
+- **A SQL command and a non-SQL one can.** `aaa` while a `SELECT * FROM funcs`
+  is mid-scan rewrites the analysis under that walk, taking none of those
+  locks. Same for seek-dependent tables, since the HTTP loop rewrites the
+  current address per request.
+
+**Take turns** — not because SQL races SQL, but because everything else does.
+
+**`e` settings do NOT cross the boundary.** Each HTTP request runs against a
+clone of radare2's config, so a setting made on one side is invisible to the
+other in both directions, while renames/comments/flags are fully shared. One
+session means one *analysis*, not one *configuration*.
+
+Two things are fixed at your first `sql`: the decompiler probe (`pseudocode`
+exists only if `pdg`/`pdd`/`pdc` answered then — load r2ghidra first) and the
+bound core (`o <other-file>` mid-session does not rebuild the session).
 
 ### Performance strategy
 
-A one-shot `-q` pays the full open+analyze cost every invocation. For anything
-interactive or scripted with many queries, **open once as a server** and send
-queries over HTTP/MCP — the session (and its analysis) stays warm.
+A one-shot batch invocation pays the full open+analyze cost every time. For
+anything interactive or scripted with many queries, **open once with `=h`** and
+send queries over `/cmd/` — the session, and its analysis, stays warm.
 
 ---
 
@@ -200,8 +287,8 @@ with a `type`, and radare2's own vocabulary is the complete set: `CALL`,
 DELETE it, query it. Use `io_maps` to add an SRAM region or rebase a raw image;
 `sections`/`segments` are the binary's static headers.
 
-**`r2xsql-full` reads `sections`/`segments` straight from radare2's
-`RBinSection` vector instead of running `iSj`/`iSSj` and parsing the JSON** —
+**r2xsql reads `sections`/`segments` straight from radare2's `RBinSection`
+vector instead of running `iSj`/`iSSj` and parsing the JSON** —
 both commands share ONE producer (opposite `is_segment` filters over the same
 vector), identical rows either way. Neither table needs an analysis pass at
 all; both read straight off the loaded binary's own headers.
@@ -210,14 +297,13 @@ all; both read straight off the loaded binary's own headers.
 Within a function, **basic blocks** (`blocks`) are straight-line code runs with
 a single entry and exit — the unit of control-flow analysis.
 
-**`r2xsql-full` reads `blocks`/`cfg_edges`/`switch_tables`/`dominators`/
+**r2xsql reads `blocks`/`cfg_edges`/`switch_tables`/`dominators`/
 `post_dominators`/`loops` straight from radare2's in-process analysis state**
 (`fcn->bbs`) instead of running `afbj @ X` and parsing its JSON — all six share
 the same underlying block list, so this is one port that speeds up all six at
 once, an unfiltered scan going from one command per function to none. The
-pipe-only `r2xsql` drives a separate radare2 process, so it uses the `afbj @ X`
-commands described below on both the full scan and the `func_addr` pushdown.
-`switch_tables.table_addr` stays NULL on both flavors: the C API has the jump
+`afbj @ X` commands described below are the equivalent command path.
+`switch_tables.table_addr` stays NULL either way: the C API has the jump
 table's own address, but no radare2 command exposes it, so surfacing it only
 in-process would make the two flavors disagree on that column for the same
 query.
@@ -226,7 +312,7 @@ query.
 `cfg_edges` is the intra-function control-flow graph: one row per edge between two
 basic blocks — `func_addr`, `from_addr`, `to_addr` (source/target block start
 addresses), and `edge_type` (`normal`, `true`, `false`). Always filter by
-`func_addr` (pushdown → `afbj @ X` on the pipe-only flavor). Branch points are
+`func_addr` (pushdown → `afbj @ X` on the command path). Branch points are
 blocks with >1 successor; find them with `SELECT from_addr, COUNT(*) FROM
 cfg_edges WHERE func_addr = X GROUP BY from_addr HAVING COUNT(*) > 1`.
 
@@ -235,8 +321,8 @@ Canonical cross-tool CFG-graph tables (aligned with ghidrasql). Each maps a
 function's basic blocks onto opaque node ids and runs the generic
 `xsql::graph` module — pure r2xsql code, not a radare2 dominance API, so the
 in-process speedup above comes entirely from how the block list itself is
-read. Always filter by `func_addr` (pushdown → `afbj @ X` on the pipe-only
-flavor).
+read. Always filter by `func_addr` (pushdown → `afbj @ X` on the command
+path).
 
 | Table | Columns |
 |-------|---------|
@@ -524,16 +610,13 @@ split `funcs.prototype` documents against `funcs`'s other columns — and is
 redundant with the structured `args`/`ret`/`rets`/`argn` fields above.
 
 #### `locals` (writable)
-Source per-function `afvj @ <func_addr>` on the pipe-only flavor; `r2xsql-full`
-reads `fcn->vars` directly instead of running that command — identical rows,
-one command per function replaced by none on a full scan. One row per local
-variable/argument, keyed on `(func_addr, name)`. Both `name` and `type` are
-writable on both flavors: `r2xsql-full` calls `r_anal_var_rename`/
-`r_anal_var_set_type` directly (measured 78-150x over `afvn`/`afvt` on a bulk
-rename/retype workload, exact parity); the pipe-only flavor still issues
-`afvn`/`afvt`. On the in-process (libr) flavor, whenever that C-API leg is
-unavailable, the command-path fallback (also the pipe-only flavor's only
-path) dispatches `afvn`/`afvt` through the same structural no-eval command
+The command-path equivalent is per-function `afvj @ <func_addr>`; r2xsql
+reads `fcn->vars` directly instead — identical rows, one command per function
+replaced by none on a full scan. One row per local variable/argument, keyed on
+`(func_addr, name)`. Both `name` and `type` are writable: r2xsql calls
+`r_anal_var_rename` / `r_anal_var_set_type` directly (measured 78-150x over
+`afvn`/`afvt` on a bulk rename/retype workload, exact parity). Whenever that
+C-API leg is unavailable, the command-path fallback dispatches `afvn`/`afvt` through the same structural no-eval command
 path every other address-scoped write uses — see "Structural no-eval
 dispatch" below.
 
@@ -560,8 +643,8 @@ Locals are analysis-derived — no INSERT/DELETE. r2 reflects a rename/retype
 immediately, so the next read returns the new value.
 
 #### `blocks` (read-only)
-Source per-function `afbj @ <addr>` on the pipe-only flavor; `r2xsql-full`
-reads `fcn->bbs` directly (see "Basic blocks" above). Filter by `func_addr`.
+Command-path source: per-function `afbj @ <addr>`; r2xsql reads `fcn->bbs`
+directly (see "Basic blocks" above). Filter by `func_addr`.
 
 | Column      | Type  | Notes                |
 |-------------|-------|----------------------|
@@ -586,8 +669,8 @@ linearly from `X` and cannot reach a block below its own function's entry
 any) owns the addresses it walks, so `func_addr` is always `0` on rows from
 this path.
 
-**Performance: what you SELECT changes how this table is filled, on the
-in-process (`r2xsql-full`) connection.** `disasm` and `mnemonic` are
+**Performance: what you SELECT changes how this table is filled.**
+`disasm` and `mnemonic` are
 *rendered text* — radare2's own disassembly renderer, no exported C-API
 entry point — so a query that selects either always runs the full command
 path (`pdfj`/`pdj`, same as always). Every other column (`addr`, `size`,
@@ -596,9 +679,7 @@ path (`pdfj`/`pdj`, same as always). Every other column (`addr`, `size`,
 of `disasm`/`mnemonic` reads it straight from radare2's analysis state
 instead — measured 4-9x faster end to end, with exact field parity, on every
 one of this table's three shapes (full scan, `func_addr` pushdown,
-`start_addr`/`count` pushdown). This applies to `r2xsql-full` only — the
-pipe-only `r2xsql` connection always uses the command path, since it spawns
-a separate radare2 process with no in-process state to read. In practice:
+`start_addr`/`count` pushdown). In practice:
 `SELECT addr, op_type, esil FROM instructions WHERE func_addr = X` is the
 fast shape; adding `disasm` or `mnemonic` to that same query switches it back
 to the command path — not a bug, and not something to avoid when you
@@ -703,7 +784,7 @@ WHERE o.func_addr = 0x401000 ORDER BY o.seq, p.operand_index;
 ```
 
 #### `sections` / `segments` (read-only)
-Source `iSj` / `iSSj` on the pipe-only flavor; `r2xsql-full` reads
+Command-path source `iSj` / `iSSj`; r2xsql reads
 `RBinSection` directly instead (see "Sections vs segments vs io_maps" above).
 
 | Column  | Type  | Notes                          |
@@ -833,7 +914,7 @@ this table. No INSERT or DELETE: a byte can't be created or removed, only
 changed. `addr`/`is_initialized` stay read-only.
 
 #### `strings` (read-only)
-Source `izj` on the pipe-only flavor; `r2xsql-full` reads `r_bin_get_strings`
+Command-path source `izj`; r2xsql reads `r_bin_get_strings`
 directly instead — identical rows (that command handler already calls the
 same function internally). (The `content` column is skipped at build time
 when you don't select it — so `COUNT(*)` / length histograms over `strings`
@@ -880,7 +961,7 @@ FROM data_items ORDER BY is_string DESC, size DESC LIMIT 20;
 ```
 
 #### `imports` (read-only)
-Source `iij` on the pipe-only flavor; `r2xsql-full` reads `RBinImport`
+Command-path source `iij`; r2xsql reads `RBinImport`
 directly instead (via the same `r_bin_name_tostring`/`r_bin_demangle`/
 `r_core_bin_impaddr` helpers the command emitter itself calls) — identical
 rows, no command dispatch.
@@ -908,11 +989,11 @@ WHERE name LIKE 'Crypt%' OR name LIKE 'BCrypt%'
 `xrefs` to find code that calls through it.
 
 #### `entries` (read-only)
-Sources `iej` (program entry points) plus `iEj` (exports), deduplicated by address,
-on the pipe-only flavor; `r2xsql-full` reads `RBinAddr`/`RBinSymbol` directly
-instead and merges them the same way — identical rows. Executables normally
-have at least their loader entry point even when they export no symbols. Note
-`entries.name` is the ORIGINAL symbol name, never demangled, on either flavor.
+Command-path sources: `iej` (program entry points) plus `iEj` (exports),
+deduplicated by address; r2xsql reads `RBinAddr`/`RBinSymbol` directly instead
+and merges them the same way — identical rows. Executables normally have at
+least their loader entry point even when they export no symbols. Note
+`entries.name` is the ORIGINAL symbol name, never demangled.
 
 | Column | Type  | Notes               |
 |--------|-------|---------------------|
@@ -933,11 +1014,10 @@ Source per-function `afxj @ <fn>`. Point lookups push down: `to_addr = X` ⇒
 `axtj @ X`, `from_addr = X` ⇒ `axfj @ X`. An unfiltered scan enumerates `afxj`
 across every function.
 
-**`r2xsql-full` reads this table straight from radare2's in-process analysis
+**r2xsql reads this table straight from radare2's in-process analysis
 state instead of running those commands** — same rows, roughly an order of
 magnitude faster on a large binary, where an unfiltered scan would otherwise be
-one command per function. The pipe-only `r2xsql` drives a separate radare2
-process, so it uses the commands above. (`funcs`, `byte_search`, `locals`,
+one command per function.
 `flags`, the `blocks`/`cfg_edges`/`switch_tables`/`dominators`/
 `post_dominators`/`loops` cluster, and `strings`/`sections`/`segments`/
 `imports`/`entries` use the same in-process path; every other table runs
@@ -1478,16 +1558,17 @@ Source `tk*` enriched with `tj` / `tsj` / `tuj`.
 `ordinal` is recomputed on every query (this table has no cross-query cache,
 since the type database is mutable): it agrees for a given name across two
 queries only while the type set is unchanged in between — an intervening
-INSERT/DELETE/`r2xsql_type_define` shifts the alphabetical position of every
+INSERT/DELETE/`td` shifts the alphabetical position of every
 name that sorts after the change. Never derived from any address.
 
 `DELETE FROM types WHERE name = 'X'` ⇒ `t- X`.
 `INSERT INTO types (name, kind) VALUES ('X', 'struct')` creates an **empty**
 struct/union/enum shell (`kind` must be one of those three — an atomic type,
 typedef, or func needs more than a bare name to exist). For a **full**
-declaration (members, an underlying primitive, a signature), use
-`r2xsql_type_define('<one-line C decl>')`, which the empty-shell INSERT is
-itself built on.
+declaration (members, an underlying primitive, a signature), use radare2's
+own `td <one-line C decl>` command, which the empty-shell INSERT is itself
+built on. It reaches the session over the same transport as the SQL, so no
+SQL wrapper is needed and none is provided.
 
 Neither `td` nor `t-` is address-scoped (a type definition isn't tied to any
 address, and `t-` deletes purely by name) — unlike every other writable
@@ -1502,13 +1583,14 @@ below; the pipe backend is unaffected.
 ```sql
 SELECT name, kind, size FROM types WHERE kind = 'struct' ORDER BY size DESC LIMIT 20;
 INSERT INTO types (name, kind) VALUES ('Header', 'struct');
-SELECT r2xsql_type_define('struct hdr { int magic; int size; char name[16]; }');
+"td struct hdr { int magic; int size; char name[16]; };"   -- an r2 command
 ```
 
 The full type set (e.g. the thousands of Windows API typedefs) lives in
-radare2's `share/fcnsign/types-*.sdb`. The **r2pipe** backend always loads it.
-The **libr** backend (`r2xsql-full`) loads it only when run from radare2's `bin/`
-directory; otherwise `types` collapses to a few built-ins (r2xsql warns).
+radare2's `share/fcnsign/types-*.sdb`. The plugin runs inside radare2 and
+inherits whatever the host resolves, so if `types` collapses to a few
+built-ins, the host radare2's own data directory is what to check
+(`e dir.prefix` / `e dir.types`).
 
 #### `types_members` (read-only)
 Per-type `tsj` / `tuj` / `tej`.
@@ -1708,11 +1790,11 @@ SELECT name FROM libs ORDER BY name;
 ### Annotations (writable)
 
 #### `flags` (writable)
-Source `fj` (full dump) + one `fs <space>; fj; fs *` per flagspace on the
-pipe-only flavor, to attribute radare2's real flagspace onto each flag by
-name; `r2xsql-full` reads `r_flag_foreach` directly instead — identical rows,
-the per-flagspace enumeration replaced by one pass with no `fs`
-select/restore at all. Named addresses.
+Command-path source: `fj` (full dump) plus one `fs <space>; fj; fs *` per
+flagspace, to attribute radare2's real flagspace onto each flag by name;
+r2xsql reads `r_flag_foreach` directly instead — identical rows, the
+per-flagspace enumeration replaced by one pass with no `fs` select/restore at
+all. Named addresses.
 
 | Column     | Type  | Notes                          |
 |------------|-------|--------------------------------|
@@ -1732,13 +1814,11 @@ INSERT (`f`) and DELETE (`f-`) are address-scoped, so on the in-process (libr)
 backend both dispatch through the same structural no-separator-evaluating
 command path `comments`/`funcs` writes already use — a second, independent
 layer beneath the name validation above. `name`'s rename calls radare2's C API
-directly on `r2xsql-full` (`r_flag_get` + `r_flag_rename`, no address needed
-at all — measured 48-62x over `fr` on a bulk-rename workload, exact parity);
-the pipe backend still issues `fr` (seeked to the flag's own address, which
-`fr` never consults — a harmless anchor, not an input into the rename).
+directly (`r_flag_get` + `r_flag_rename`, no address needed at all — measured
+48-62x over the command-path `fr` on a bulk-rename workload, exact parity).
 
 #### `comments` (writable)
-Source `CCj` on the pipe-only flavor; `r2xsql-full` reads radare2's meta
+Command-path source `CCj`; r2xsql reads radare2's meta
 interval tree directly instead — identical rows (a single full-scan command,
 not a per-function loop, so the win is skipping a json round trip).
 
@@ -1754,7 +1834,7 @@ UPDATE comments SET text = 'crypto init v2' WHERE addr = 0x401000;   -- CCu base
 DELETE FROM comments WHERE addr = 0x401000;                          -- CC-
 ```
 
-On `r2xsql-full`, `text`'s set/update calls `r_meta_set_string` directly
+`text`'s set/update calls `r_meta_set_string` directly
 (measured 30-40x over `CCu` on a bulk-set workload, exact parity) — including
 reproducing `CCu`'s own dedup quirk: a write whose new text is already a byte
 substring of the EXISTING comment is silently skipped (no-op), matching
@@ -1823,8 +1903,8 @@ table is an editable annotation. Each affected row issues one radare2 command.
 | `comments`  | `CCu base64:<b64> @ <addr>` | `text` ⇒ `CCu base64:<b64> @ <addr>` | `CC- @ <addr>` |
 | `bookmarks` | `f <name> @ <addr>` (bookmarks space) | `name` ⇒ `fr <old> <new>` | `f- @ <addr>` |
 | `locals`    | — | `name` ⇒ `afvn <new> <old>`; `type` ⇒ `afvt <name> <type>` | — |
-| `types`     | `td "<kind> <name> {};"` (empty struct/union/enum shell only; a full declaration needs `r2xsql_type_define`) | — | `t- <name>`   |
-| `projects`  | — (use `r2xsql_project_save`) | —                 | `P- <name>`   |
+| `types`     | `td "<kind> <name> {};"` (empty struct/union/enum shell only; a full declaration is r2's own `td`) | — | `t- <name>`   |
+| `projects`  | — (use r2's `Ps <name>`)      | —                 | `P- <name>`   |
 | `io_maps`   | `om $d <vaddr> <size> <paddr> <perm> <name>` (add region) | — | `om-<map_id>` (remove map) |
 | `patches`   | `wx <hex> @ <addr>` (stage) — `patched_bytes` (raw hex) or `asm_text` (assembled via `pa` first, exactly one required) | `committed` ⇒ `1` only: `wci` (commits **ALL** pending patches, never row-selective — see the table's own section) | `wcu` (uncommitted **and** most-recently-staged row only) |
 | `bytes`     | —                   | `value` ⇒ `wx <hex> @ <addr>`, **direct/immediate** — NOT staged, bypasses `io.cache` entirely (see the table's own section for how this differs from `patches`) | —             |
@@ -1860,8 +1940,7 @@ Rules and gotchas:
   predicate matching thousands of rows, **chunk** it (e.g. by address range) to
   keep each statement bounded.
 - **Persistence:** mutations live in the radare2 session and vanish on exit
-  **unless** you opened with `-w` and saved (`--project NAME`, or
-  `r2xsql_project_save` mid-session). See below.
+  **unless** you opened with `-w` and saved with r2's `Ps <name>`. See below.
 - **`patches` commit is table-wide, not row-selective.** `UPDATE patches SET
   committed = 1 WHERE addr = X` commits every currently-pending patch in the
   session, not just the row at `X` — radare2's write cache has no
@@ -1908,36 +1987,42 @@ WHERE addr IN (SELECT addr FROM funcs WHERE name LIKE '%init%');
 Edits (renames, comments, flags, types) accumulate in the radare2 core and are
 written to disk only when a **project** is saved.
 
-```sql
-SELECT r2xsql_project_save('triage1');   -- Ps: save the session as a project, no exit
-SELECT name FROM projects;              -- Plj: list saved projects
-SELECT r2xsql_project_open('triage1');   -- P:  load a project mid-session
-DELETE FROM projects WHERE name = 'x';  -- P-: delete a project on disk
+**Saving and opening are radare2 commands, not SQL.** They used to be the
+`r2xsql_project_save` / `r2xsql_project_open` scalar functions; those are gone,
+because `Ps` and `P` do the same thing and travel the same transport as your
+SQL does. Only the read side is SQL:
+
+```
+Ps triage1          r2 command: save the session as a project, no exit
+P  triage1          r2 command: load a project mid-session
 ```
 
-Two ways to persist:
+```sql
+SELECT name FROM projects;              -- Plj: list saved projects
+DELETE FROM projects WHERE name = 'x';  -- P-:  delete a project on disk
+```
 
-- **Mid-session:** `SELECT r2xsql_project_save('name')` whenever you want.
-- **On exit:** open with `-w --project NAME`; the session saves automatically
-  when the process ends.
-
-Resume later with `--project NAME` (CLI) or `r2xsql_project_open('NAME')`. Using
-a project also skips re-analysis — the warm path for iterative work.
+Open the binary with `-w` to make the session writable, and resume later with
+`-p NAME`, which also skips re-analysis — the warm path for iterative work.
 
 ```bash
-# annotate and persist
-r2xsql -w --project demo -s ./malware.exe -q "
-  UPDATE funcs    SET name = 'aes_init'    WHERE addr = 0x401000;
-  UPDATE comments SET text = 'crypto init' WHERE addr = 0x401000;
-"
-# reopen — the rename + comment are still there
-r2xsql --project demo -s ./malware.exe -q "
-  SELECT name FROM funcs WHERE addr = 0x401000;
-"
+# annotate and persist: several -c run against the same RCore
+radare2 -w -A ./malware.exe   -c '"sqlj UPDATE funcs SET name = '"'"'aes_init'"'"' WHERE addr = 0x401000;
+       UPDATE comments SET text = '"'"'crypto init'"'"' WHERE addr = 0x401000"'   -c 'Ps demo'
+
+# reopen the project — the rename and comment are still there, no re-analysis
+radare2 -p demo -c '"sqlj SELECT name FROM funcs WHERE addr = 0x401000"' ./malware.exe
 ```
 
-Both `-q` statements above run — `-q` (like `-f`) executes every `;`-terminated
-statement in the string, not just the first.
+Both statements in that `sqlj` run — `sqlj` goes through `run_script` and
+executes every `;`-terminated statement, returning one result object each.
+Plain `sql` runs only the first.
+
+> ⚠️ **A refused `Ps` is silent over HTTP.** While `http.sandbox` is true (the
+> default) the write is rejected, but the error goes to the *server's* stderr
+> and the response is an empty body with HTTP 200 — indistinguishable from
+> success. Set `e http.sandbox=false`, and verify with
+> `SELECT name FROM projects` rather than trusting the save.
 
 ---
 
@@ -1994,9 +2079,14 @@ without limit.
 | Function                       | Returns | Effect (radare2)                                     |
 |--------------------------------|---------|------------------------------------------------------|
 | `regexp(pattern, text)`        | INT     | ECMAScript-regex match; backs `text REGEXP 'pat'`    |
-| `r2xsql_project_save('name')`   | TEXT    | save the session as a project — `Ps name`            |
-| `r2xsql_project_open('name')`   | TEXT    | load a project into the session — `P name`           |
-| `r2xsql_type_define('<C decl>')`| TEXT    | define a type from a one-line C decl — `td <decl>`   |
+
+`regexp` is the only one, and the reason is worth stating: SQLite reserves
+the `REGEXP` syntax but ships no implementation, so the operator is a
+runtime error unless a host registers this function. No radare2 command can
+express it, which is exactly what distinguishes it from the functions that
+used to be here. Project save/open and type definition were all removed —
+they are radare2 commands (`Ps <name>` / `P <name>` / `td <decl>`), reached
+over the same transport as the SQL. See *Persistence & Projects*.
 
 ```sql
 -- regex on names (the registered regexp())
@@ -2037,7 +2127,7 @@ SELECT printf('0x%x', addr) AS at, bytes FROM instructions WHERE func_addr = 0x4
 4. **Filter on integers/addresses,** not on stringified disassembly where you
    can avoid it.
 5. **Reuse via a server.** Tables rebuild per query (no persistent cache) — for
-   repeated drilling, run `--http`/`--mcp` once and query the warm session.
+   repeated drilling, start `=h <port>` once and query the warm session.
 6. **Materialize repeated broad scans.** If you need an unfiltered `xrefs` set
    several times in a session, snapshot it:
 
@@ -2146,7 +2236,7 @@ catch them. High `cc` alone isn't "interesting" — combine it with API/string
 anchors.
 
 ### Bottom-up "re-source" loop
-Open with `-w --project NAME` so every note persists. Then repeat:
+Open with `-w`, and `Ps NAME` when done, so every note persists. Then repeat:
 1. **Anchor** on a unique data leaf (a one-off string, a distinctive import).
 2. **Walk back** via `xrefs` (`to_addr = <leaf>` → caller, then caller's caller).
 3. **Name & comment** each hop (`UPDATE funcs SET name = …`,
@@ -2176,9 +2266,8 @@ SELECT text FROM comments WHERE text LIKE 'ESIL:%';
 ```
 
 ### Type reconstruction
-Browse `types` / `types_members`; define new ones with
-`r2xsql_type_define('<C decl>')`; apply a type at an address with a raw command
-(`.tl <TYPENAME> @ <addr>`).
+Browse `types` / `types_members`; define new ones with the raw command
+`td <C decl>`; apply a type at an address with `.tl <TYPENAME> @ <addr>`.
 
 ---
 
@@ -2186,73 +2275,54 @@ Browse `types` / `types_members`; define new ones with
 
 When the table surface can't express the question, reach the engine directly:
 
-- **CLI `-q` / REPL:** a line beginning with `.` runs raw radare2 (the `.` is
-  stripped): `r2xsql -s a.bin -q ".pdf @ entry0"`.
-- **HTTP:** `POST /query` with a body beginning `.r2cmd ` → `{"success":true,
-  "output":"<raw output>"}`.
-- **In-r2 plugin:** you're already in the radare2 shell.
-- **r2js:** scripts run *inside* radare2 (`r2cmd("aflj")` returns JSON); they
+There is nothing to learn here: r2xsql runs *inside* radare2, so a raw command
+is just a command.
+
+- **Console:** you are already at an r2 prompt — type `pdf @ entry0`.
+- **Batch:** `radare2 -q -c 'pdf @ entry0' a.bin`.
+- **HTTP:** `POST /cmd/` with the command as the body —
+  `curl -X POST .../cmd/ -d 'pdf @ entry0'`. The *same* endpoint the SQL goes
+  to, which is why the old `.r2cmd ` passthrough no longer exists.
+- **r2js:** scripts run inside radare2 (`r2cmd("aflj")` returns JSON); they
   don't see the SQL database — bridge results back via flags/comments.
 
-Raw passthrough (`Session::raw_cmd`) bypasses the table layer: no schema, no
-parsing, no pushdown. **You** parse the output.
+Raw output bypasses the table layer: no schema, no parsing, no pushdown.
+**You** parse it. Remember that a raw command containing `>` or `|` needs the
+same double-quote wrapping the SQL does.
 
 ---
 
-## Server Modes
+## Serving over HTTP
 
-### HTTP REST (recommended for repeated queries)
-```bash
-r2xsql -s ./target.exe --http 8080
-r2xsql -s ./target.exe --http --bind 0.0.0.0 --token s3cret   # bind everywhere + auth
-```
-`--http` with no port picks a random port in **8100–8999**.
-
-| Endpoint        | Method | Purpose                                                   |
-|-----------------|--------|-----------------------------------------------------------|
-| `/`             | GET    | banner / welcome                                          |
-| `/help`         | GET    | embedded API help                                         |
-| `/query`        | POST   | body = SQL, or `.r2cmd <command>` for raw radare2         |
-| `/status`       | GET    | health check (`{"mode":"cli","tool":"r2xsql"}`)            |
-| `/shutdown`     | POST   | graceful stop                                             |
-
-Response envelope:
-```json
-{ "success": true, "columns": ["name","size"], "rows": [["main","42"]], "row_count": 1 }
-```
-On error: `{ "success": false, "error": "<message>" }`. With `--token`, every
-endpoint except `/` and `/help` requires `Authorization: Bearer <tok>` (or
-`X-XSQL-Token: <tok>`).
+radare2's own HTTP server carries the plugin — there is no r2xsql server and no
+second port.
 
 ```bash
-curl -X POST http://127.0.0.1:8080/query \
-  --data 'SELECT name, size FROM funcs ORDER BY size DESC LIMIT 5'
-curl -X POST http://127.0.0.1:8080/query --data '.r2cmd ?V'   # raw radare2
+# headless: analyze, then serve and block
+radare2 -e http.sandbox=false -c 'aaa; =h 9090' ./target.exe
+
+# shared session: from inside an interactive r2 or iaito's console
+#   e http.sandbox=false
+#   =h& 9090          (background thread; pick a FREE port, a collision spins forever)
 ```
 
-### MCP (SSE / JSON-RPC)
+One endpoint: **`POST /cmd/`**, body = an r2 command, verbatim. Use POST, not
+`GET /cmd/<…>` — the POST body is not URL-decoded and GET request lines
+truncate around 1500 bytes.
+
 ```bash
-r2xsql -s ./target.exe --mcp 9876        # or --mcp for a random port in 9000-9999
+curl -X POST http://127.0.0.1:9090/cmd/ -d '"sqlj SELECT name, size FROM funcs LIMIT 5"'
+curl -X POST http://127.0.0.1:9090/cmd/ -d '?V'      # raw r2, same endpoint
+curl -X POST http://127.0.0.1:9090/cmd/ -d 'Ps demo' # save
+curl -X POST http://127.0.0.1:9090/cmd/ -d 'q!!'     # stop (q! does NOT)
 ```
-Transport: `GET /sse` (event stream) + `POST /messages` (JSON-RPC). One tool:
 
-| Field | Value                                                     |
-|-------|-----------------------------------------------------------|
-| Name  | `r2xsql_query`                                             |
-| Input | `{ "query": "<SQL string>" }` (required)                  |
-| Result| `content:[{type:"text", text:"<JSON envelope>"}]`         |
+`Content-Type: text/plain`; the body is the command's console output verbatim,
+so for `sqlj` it is the JSON envelope. **The status is always 200**, even for an
+invalid command — parse the body, not the code.
 
-The JSON envelope inside `text` is byte-identical to the HTTP `/query` response.
-A failed SQL query is reported **in-band** (`success:false`), not as a
-transport error.
-
-### In-r2 plugin
-After loading the plugin inside radare2 (`L core_r2xsql.dll`):
-```text
-sql <SQL>            run one query against the host RCore
-sql.http [port]      start / sql.http-  stop / sql.http?  status
-sql.mcp  [port]      start / sql.mcp-   stop / sql.mcp?   status
-```
+MCP reaches the same commands through r2's own MCP support, with no r2xsql-side
+code: anything that can send an r2 command can run `sqlj`.
 
 ---
 
@@ -2342,7 +2412,7 @@ LEFT JOIN funcs f ON f.addr = x.from_func;
 | Types / struct layout                      | `types` / `types_members`                        |
 | Register profile / relocations / linked libs | `registers` / `relocs` / `libs`                |
 | Rename / comment / flag / bookmark         | writable tables (`funcs`/`comments`/`flags`/`bookmarks`) |
-| Save / resume work                         | projects + `r2xsql_project_save`/`_open`          |
+| Save / resume work                         | r2's `Ps <name>` / `P <name>`; `projects` to list |
 | Something SQL can't express                | raw radare2 (`.`-prefix, `.r2cmd`, r2js)         |
 
 ---
@@ -2350,15 +2420,14 @@ LEFT JOIN funcs f ON f.addr = x.from_func;
 ## Error Handling / Caveats
 
 - **Empty `funcs`/`xrefs`:** analysis hasn't run. Open without `--no-analyze`,
-  open a `--project`, or run deeper analysis (`.aaaa` raw) for more edges.
+  open a saved project with `-p NAME`, or run deeper analysis (`aaaa`).
 - **Indirect calls** may resolve to the IAT slot, not the final target —
   emulate (`.aae`) or run `.aaaa` for more.
 - **`funcs.size = 0`** for some thunks/externs — filter with `size > 0` when
   measuring real code.
 - **No `pseudocode` table:** no decompiler detected — install one (see above).
-- **Sparse `types` / unresolved ordinal imports** with `r2xsql-full`: it isn't
-  running from radare2's `bin/` (the `share/` data dir isn't found). Run it from
-  the radare2 install directory, or use the pipe-only `r2xsql` (which always has
-  the full data dir).
+- **Sparse `types` / unresolved ordinal imports**: the host radare2 is not
+  finding its data directory. Check `e dir.prefix` / `e dir.types` in the
+  radare2 you loaded the plugin into.
 - **Write didn't stick** after exit: you didn't open with `-w` / didn't save a
-  project. Use `-w --project NAME` or `r2xsql_project_save`.
+  project. Open with `-w` and save with `Ps NAME`.

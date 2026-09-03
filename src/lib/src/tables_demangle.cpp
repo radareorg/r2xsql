@@ -20,7 +20,7 @@
 // allowlist would reject -- MSVC uses `?`/`@`/`$` throughout
 // (`?foo@@YAHXZ`), Rust and Itanium C++ use `$`-escaped substitutions
 // heavily. So this table uses the SAME structural no-eval dispatch
-// (Backend::cmd_noeval) `types`' `td`/`r2xsql_type_define` already pilots
+// (Backend::cmd_noeval) the `types` table's `td` write already pilots
 // for an addr-less command with a genuinely unrestrictable free-text
 // argument -- verified live (not assumed) that the injection risk is real:
 // `iDj cxx foo; ?e INJECTED` through a plain `Backend::cmd()` splice DOES

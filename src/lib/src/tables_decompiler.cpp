@@ -5,7 +5,8 @@
 // See LICENSE.
 // pseudocode — runtime-gated. Runs the detected decompiler command
 // (pdg / pdd / pdc) per function. A `func_addr` equality filter is pushed
-// down: `WHERE func_addr = X` decompiles exactly that one function. An
+// down: `WHERE func_addr = X` decompiles exactly that one function, provided X
+// is a function START (see `PseudoAtFuncIterator`). An
 // unfiltered scan walks `aflj` and decompiles every function (expensive).
 
 #include <memory>
@@ -20,6 +21,7 @@
 
 #include "tables.hpp"
 #include "json_utils.hpp"
+#include "table_utils.hpp"
 
 namespace r2xsql {
 
@@ -54,15 +56,32 @@ class PseudoGen : public xsql::Generator<PseudoRow> {
   int64_t rowid() const override { return cur_.func_addr; }
 };
 
+// `fa` must be a function START. `<dec_cmd> @ fa` decompiles the function
+// CONTAINING fa, so a mid-function address used to yield ONE row holding the
+// owner's pseudocode tagged `func_addr = fa` — a row that violates the
+// pushed-down constraint SQLite never re-checks (see
+// `table_utils::func_addr_pushdown_ok`). Refusing yields no row at all, which
+// also retires this table's old "the pushdown always emits exactly one row"
+// behavior: an address no function starts at now answers with nothing rather
+// than with the decompiler's prose.
+//
+// The UNCONDITIONAL `func_addr_is_start`, not the `_pushdown_ok` shortcut: this
+// table has no direct (C-API) producer, so the decompiler command is issued on
+// the full flavor exactly as on the pipe flavor and there is nothing in-process
+// to self-check. Shortcutting on `be->direct()` would wave through the one case
+// the gate exists to refuse.
 class PseudoAtFuncIterator : public xsql::RowIterator {
   PseudoRow row_;
+  bool refused_ = false;
   bool started_ = false;
   bool done_ = false;
  public:
-  PseudoAtFuncIterator(Backend* be, const std::string& dec_cmd, int64_t fa)
-      : row_(pseudo_for_func(be, dec_cmd, fa)) {}
+  PseudoAtFuncIterator(Backend* be, const std::string& dec_cmd, int64_t fa) {
+    if (!table_utils::func_addr_is_start(be, fa)) { refused_ = true; return; }
+    row_ = pseudo_for_func(be, dec_cmd, fa);
+  }
   bool next() override {
-    if (started_) { done_ = true; return false; }
+    if (refused_ || started_) { done_ = true; return false; }
     started_ = true;
     return true;
   }
