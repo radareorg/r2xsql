@@ -7,7 +7,7 @@
 # core_r2xsql, installed into radare2's own plugin dir (queried from
 # `radare2 -HR2_LIBR_PLUGINS`), built
 # against `pkg-config r_core`. This is the plugin-only build; CMake remains the
-# primary/full build (CLI flavors, Windows) -- see README.md.
+# library and cross-platform build (including Windows) -- see README.md.
 #
 # libxsql (r2xsql's SQL core) is consumed as a meson subproject: the wrap in
 # subprojects/ fetches it and a packagefiles/ overlay supplies the meson.build,

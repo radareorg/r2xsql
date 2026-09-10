@@ -7,8 +7,7 @@
 // DELETE FROM projects WHERE name='X' removes it on disk (`P- X`). Saving and
 // opening a project mid-session are actions, not row states, so they are
 // exposed as the r2xsql_project_save('name') / r2xsql_project_open('name')
-// scalar functions (see Session::register_functions_). The CLI `-w --project`
-// save-on-exit path is unchanged and complementary.
+// scalar functions (see Session::register_functions_).
 
 #include <r2xsql/session.hpp>
 #include <r2xsql/backend.hpp>

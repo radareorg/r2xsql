@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 # Stage r2xsql release trees from a completed build:
 #   dist/overlay/  — extract ON TOP OF a radare2 install prefix (libr drop-in):
-#                      bin/r2xsql[.exe]            (next to radare2[.exe])
 #                      <r2-plugin-dir>/core_r2xsql.*  (r2's own plugin search dir)
-#   dist/pipe/     — standalone pipe-only r2xsql[.exe] (needs radare2 on PATH)
 #
 # The plugin's relative path is derived from the installed prefix layout so the
 # overlay drops the plugin exactly where this r2 looks for it — Linux uses
@@ -68,59 +66,27 @@ copy_first() {
 }
 
 rm -rf dist
-mkdir -p "dist/overlay/bin" "dist/overlay/${REL_PLUGIN}" "dist/pipe"
-
-# Both flavors come from the SAME build tree (one configure with
-# R2XSQL_BUILD_FULL=ON): r2xsql (pipe), r2xsql-full (libr CLI), core_r2xsql (plugin).
-
-# --- overlay: full (libr) CLI + in-r2 plugin ---
-copy_first "dist/overlay/bin/" \
-  build/bin/r2xsql-full build/bin/r2xsql-full.exe \
-  build/bin/Release/r2xsql-full.exe build/src/cli/r2xsql-full build/src/cli/Release/r2xsql-full.exe
+mkdir -p "dist/overlay/${REL_PLUGIN}"
 
 copy_first "dist/overlay/${REL_PLUGIN}/" \
   build/bin/core_r2xsql.so build/bin/core_r2xsql.dylib build/bin/core_r2xsql.dll \
   build/bin/Release/core_r2xsql.dll build/src/plugin/core_r2xsql.so \
   build/src/plugin/Release/core_r2xsql.dll
 
-# --- pipe-only: standalone single binary (same build tree) ---
-copy_first "dist/pipe/" \
-  build/bin/r2xsql build/bin/r2xsql.exe \
-  build/bin/Release/r2xsql.exe build/src/cli/r2xsql build/src/cli/Release/r2xsql.exe
-
 cat > dist/overlay/README.txt <<EOF
-r2xsql-full — radare2 drop-in (overlay, embedded/libr flavor)
+r2xsql — radare2 plugin overlay
 
-Extract this archive ON TOP OF your radare2 install prefix (the directory
-that contains bin/radare2[.exe]). It adds:
+Extract this archive ON TOP OF your matching radare2 install prefix (the
+directory that contains bin/radare2[.exe]). It adds:
 
-  bin/r2xsql-full[.exe]          full CLI (in-process libr)
-  ${REL_PLUGIN}/core_r2xsql.*    in-r2 plugin (load inside r2: L core_r2xsql.<ext>)
-
-Because r2xsql-full then sits next to radare2[.exe], the libr backend finds
-radare2's data dir (share/) automatically, so the 'types' table and
-ordinal imports resolve fully.
+  ${REL_PLUGIN}/core_r2xsql.*    in-r2 plugin
 
 Usage:
-  r2xsql-full -s <file> -q "SELECT name FROM funcs LIMIT 5"
-  radare2 <file>     then inside r2:   sql SELECT * FROM funcs
+  radare2 <file>
+  aaa
+  sql SELECT name FROM funcs LIMIT 5
 
-(For a portable build that needs no co-location, see the pipe-only r2xsql.)
-
-Built against radare2 ${R2_REF}.
-EOF
-
-cat > dist/pipe/README.txt <<EOF
-r2xsql — pipe-only single binary
-
-A standalone r2xsql[.exe] with NO radare2 libraries linked. It drives
-radare2 over a pipe (--r2pipe), so it only needs radare2[.exe] somewhere
-on PATH at runtime. Place it anywhere.
-
-Usage:
-  r2xsql -s <file> -q "SELECT name FROM funcs LIMIT 5"
-
-Built against radare2 ${R2_REF} (API-compatible r2 on PATH is sufficient).
+Built against radare2 ${R2_REF}. The plugin requires the same radare2 build.
 EOF
 
 echo "=== staged tree ==="

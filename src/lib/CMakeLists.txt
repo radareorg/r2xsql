@@ -5,9 +5,9 @@
 # See LICENSE.
 # libr2xsql — static core library exposing radare2 state as SQLite virtual
 # tables. Backend-neutral: it carries the mock + r2pipe backends only and links
-# NO radare2, so a true pipe-only r2xsql can link it without importing any
-# r_*.dll. The libr (in-process radare2) backend lives in the optional
-# r2xsql_libr OBJECT library below, shared by r2xsql-full and the in-r2 plugin.
+# NO radare2, so consumers can link it without importing any r_*.dll. The libr
+# backend lives in the optional r2xsql_libr OBJECT library below, used by
+# in-process consumers and the in-r2 plugin.
 
 add_library(r2xsql STATIC
   src/version.cpp
@@ -98,9 +98,8 @@ set_target_properties(r2xsql PROPERTIES POSITION_INDEPENDENT_CODE ON)
 #
 # Built only when the full flavor is enabled (R2XSQL_FULL_ENABLED, set by the
 # top-level CMake when R2XSQL_BUILD_FULL=ON and radare2 is found). Compiled as an
-# OBJECT library with R2XSQL_HAVE_LIBR=1 and linked into BOTH r2xsql-full and the
-# core_r2xsql plugin. The core library above never links radare2, so the
-# pipe-only r2xsql stays free of r_*.dll imports.
+# OBJECT library with R2XSQL_HAVE_LIBR=1 for the plugin and C++ consumers.
+# The core library above never links radare2.
 # ---------------------------------------------------------------------------
 if(R2XSQL_FULL_ENABLED)
   # direct_libr.cpp is the C-API side of the src/direct.hpp seam: the row
@@ -114,7 +113,7 @@ if(R2XSQL_FULL_ENABLED)
   target_compile_definitions(r2xsql_libr PRIVATE R2XSQL_HAVE_LIBR=1)
   if(Radare2_ROOT)
     # Fallback for r_sys_prefix()'s data-dir cliff: on Windows it resolves relative to the RUNNING
-    # executable's own location, not radare2's install, so r2xsql-full
+    # executable's own location, not radare2's install, so an embedding app
     # silently gets an empty calling-convention/syscall/types SDB unless it
     # happens to be deployed inside radare2's own bin/. The prefix this
     # target was actually configured against is known at build time; bake it
@@ -137,8 +136,8 @@ if(R2XSQL_FULL_ENABLED)
       _CRT_SECURE_NO_WARNINGS)
 
     # On Windows the r2 import libs reference DLLs; copy them next to the full
-    # consumers (r2xsql-full + core_r2xsql) so each loads radare2 without PATH
-    # juggling. The pipe-only r2xsql needs none of these.
+    # consumers (examples and core_r2xsql) so each loads radare2 without PATH
+    # juggling. Pipe-only consumers need none of these.
     if(Radare2_ROOT)
       file(GLOB _r2_dlls "${Radare2_ROOT}/bin/*.dll")
       if(_r2_dlls)

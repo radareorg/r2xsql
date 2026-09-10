@@ -15,7 +15,7 @@ target_compile_features(list_funcs PRIVATE cxx_std_20)
 #                 resolves it (returns nullptr -> example uses r2pipe).
 #   * full      — the real definition lives in the r2xsql_libr OBJECT library, not
 #                 the core static lib (which stays radare2-free). Link it (plus
-#                 Radare2::libr directly, as the full CLI does — an executable
+#                 Radare2::libr directly — an executable
 #                 consuming an OBJECT library does not inherit its INTERFACE link
 #                 deps) so the in-process backend and its r_* symbols resolve.
 if(R2XSQL_FULL_ENABLED)

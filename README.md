@@ -16,7 +16,8 @@ query re-issues the JSON form of the relevant r2 command (`aflj`, `izj`,
 
 ## It's not read-only — and your work saves
 
-Open with `-w` and mutate analysis through ordinary SQL writes:
+Load the plugin in radare2 and mutate analysis through ordinary SQL writes.
+Use radare2's `-w` option when writing binary bytes:
 
 ```sql
 UPDATE funcs   SET name = 'parse_header' WHERE addr = 0x401000;   -- rename
@@ -31,11 +32,10 @@ Writable surfaces: **funcs** (rename, prototype), **comments**, **flags**,
 **locals** (rename + retype), **bookmarks**, **types** (create struct/union/
 enum), **patches** (byte edits), **io_maps**, **bytes**.
 
-**Persist it.** `--project NAME` together with `-w` saves everything — renames,
-comments, types, flags — to an **r2 project** on exit (radare2's own `Ps`), and
-`-s <project>` reopens it fully restored. Because it *is* radare2's native
-project format, a project you build in r2xsql opens in plain `radare2` and
-vice-versa; the analysis is not trapped inside r2xsql.
+**Persist it.** Save analysis with `Ps NAME` in radare2 or
+`SELECT r2xsql_project_save('NAME')` through SQL. Reopen it with `P NAME` or
+`SELECT r2xsql_project_open('NAME')`. The plugin uses radare2's native project
+format; it does not automatically save on exit.
 
 ## Requirements
 
@@ -49,138 +49,68 @@ sudo apt install radare2               # distro package (may lag; see below)
 brew install radare2                   # macOS
 ```
 
-The default `r2xsql` binary finds radare2 by name on your `PATH` — literally
-`radare2` (`radare2.exe` on Windows); it never looks for `r2`, never searches
-next to itself, and reads no environment variable. If radare2 is not on `PATH`,
-point at it explicitly:
+Build `core_r2xsql` against the same radare2 installation that will load it:
+the in-process plugin depends on radare2's ABI.
 
-```bash
-r2xsql --r2-exe /opt/radare2/bin/radare2 -s ./target -q "SELECT count(*) FROM funcs"
+## Using the plugin
+
+Load the built module and analyze a target:
+
+```sh
+r2 -i /absolute/path/core_r2xsql.so -A ./target
 ```
 
-Version: r2xsql reads radare2's JSON output, so it is **not** tied to a specific
-radare2 ABI — but it is sensitive to that JSON's field naming, which changes
-across major r2 series. Prefer a recent radare2 (6.x). A too-old radare2 does not
-error; affected columns simply come back empty. Check what you actually connected
-to with `SELECT value FROM binary WHERE key='radare2_version'`.
+Use the actual `.so`, `.dylib`, or `.dll` path; omit `-i` once the plugin is
+installed in radare2's plugin directory. At the radare2 prompt:
 
-## Which build do I want?
-
-**Almost certainly just `r2xsql`.** It is the default, it is the only one built
-unless you ask for more, and it does everything the SQL surface offers. If you
-are reading this and unsure — this is your answer. Stop here.
-
-`r2xsql-full` is an **optional second binary** you opt into with
-`-DR2XSQL_BUILD_FULL=ON`. Same SQL, same CLI — the *only* reasons
-to build it are:
-
-1. you want to run SQL **inside a live radare2 session** (it ships the in-r2
-   `core_r2xsql` plugin — `r2xsql` alone cannot do this), or
-2. you keep **one session open and fire thousands of queries** at it and want to
-   shave per-query overhead (see "Is `r2xsql` slower?" below — for normal use the
-   answer is no).
-
-|  | **`r2xsql`** — the default | **`r2xsql-full`** — optional |
-|---|---|---|
-| built by | every build, always | only with `-DR2XSQL_BUILD_FULL=ON` |
-| how it talks to radare2 | **launches and manages its own** `radare2` subprocess | radare2's libraries linked **in-process** |
-| needs radare2 at runtime | **yes** — on `PATH` (or `--r2-exe`) | no — libraries are baked in |
-| radare2 version | **portable** across releases | **locked** to the exact build it compiled against |
-| in-r2 `sql` plugin | — | yes |
-| wrong-answers-if-misdeployed | cannot happen | possible (data-dir cliff, see below) |
-
-Both are built from one configure when `-DR2XSQL_BUILD_FULL=ON` is set, and the
-test suite pins them to each other field-for-field — **the answers are always
-identical**, so this is never a correctness choice.
-
-### Using `r2xsql-full` with the skills / tooling
-
-The agent skills, scripts, and the `connect` skill all invoke the **command
-`r2xsql`** — none of them know about `r2xsql-full`. And a full build still
-produces **both** binaries (`r2xsql` = pipe, `r2xsql-full` = libr) as two
-separate files, so that tooling keeps using pipe by default.
-
-To make the tooling use the full binary, put it on `PATH` **under the name
-`r2xsql`** — the CLI is identical, so nothing else changes:
-
-```bash
-ln -sf "$(command -v r2xsql-full)" ~/.local/bin/r2xsql   # Linux/macOS, ahead on PATH
+```text
+sql SELECT name, size FROM funcs ORDER BY size DESC LIMIT 10
+pdf @ entry0
+q
 ```
 
-(On Windows, copy `r2xsql-full.exe` to `r2xsql.exe` in a dir earlier on `PATH`.)
-This is the whole mechanism — there is no runtime flag that switches a `r2xsql`
-invocation to the libr engine; the choice is which binary the name resolves to.
+For a one-shot query:
 
-### How `r2xsql` connects to radare2
+```sh
+r2 -q -A -i /absolute/path/core_r2xsql.so \
+  -c '"sql SELECT name, size FROM funcs WHERE size > 100 LIMIT 5"' ./target
+```
 
-`r2xsql` **starts and owns its own** `radare2` process. You point it at a file
-with `-s <file>` and it runs `radare2 -q0` under the hood for the life of the
-session, then shuts it down. You do **not** — and cannot — hand it a `radare2`
-you launched yourself; there is no "attach to a running instance" mode.
-`--r2-exe <path>` only chooses *which* `radare2` binary it launches (use it when
-radare2 is installed but not on `PATH`). If you want SQL against a radare2
-session *you* are driving, that is the `core_r2xsql` plugin in `r2xsql-full`,
-which reuses that session's core — the opposite direction.
-
-### Is `r2xsql` slower?
-
-For normal use, **no** — measured end-to-end, a one-shot query is
-indistinguishable from `r2xsql-full` (both are dominated by radare2's analysis
-pass, which is identical). `r2xsql-full`'s speed advantage is *per query on an
-already-open session* and only adds up when a long-lived session or REPL answers
-many queries in a row. A person or an agent asking questions will not feel it.
-
-### The two catches with `r2xsql-full`
-
-- **ABI-locked.** It is welded to the exact radare2 build it compiled against —
-  the `core_r2xsql` plugin especially. Do not pair it with a different radare2.
-- **Silent-if-misdeployed.** `libr` finds radare2's data directory relative to
-  the *loading executable's own location*. Deployed away from that layout it
-  does not error — it degrades quietly (wrong calling convention, a `types`
-  table collapsed to a handful of built-ins). `r2xsql-full` detects and corrects
-  this at open time, but it is a class of failure `r2xsql` simply cannot have.
+Each `sql` command executes one statement. Quote the whole r2 command when SQL
+contains r2 operators such as `>` or `|`. Use repeated `-c` options, a radare2
+command script, or a persistent session for multiple statements.
 
 ## Build
 
 Linux / macOS:
 
-```bash
-# Pipe-only r2xsql (default) — portable, needs radare2 on PATH at runtime:
-cmake -S . -B build/r2xsql -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build/r2xsql
-
-# Also build the full flavor (r2xsql-full + core_r2xsql plugin):
-cmake -S . -B build/r2xsql-full -G Ninja -DCMAKE_BUILD_TYPE=Release \
+```sh
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DR2XSQL_BUILD_FULL=ON -DRadare2_ROOT=/path/to/radare2/prefix
-cmake --build build/r2xsql-full
+cmake --build build
 ```
 
 Windows (MSVC):
 
 ```powershell
-# Pipe-only r2xsql (default):
-cmake -S . -B build/r2xsql -G "Visual Studio 17 2022" -A x64
-cmake --build build/r2xsql --config Release
-
-# Also build the full flavor (line continuation is a backtick in PowerShell):
-cmake -S . -B build/r2xsql-full -G "Visual Studio 17 2022" -A x64 `
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
   -DR2XSQL_BUILD_FULL=ON -DRadare2_ROOT=C:\path\to\radare2\prefix
-cmake --build build/r2xsql-full --config Release
+cmake --build build --config Release
 ```
 
-`Radare2_ROOT` is a radare2 **install prefix** — the directory containing
-`include/libr/` and `lib/`, i.e. what `--prefix` pointed at when radare2 was
-built/installed (`r2pm`, `sys/install.sh`, or a meson `--prefix`). The pipe-only
-build needs none of this; it only needs the `radare2` binary at runtime.
+`Radare2_ROOT` is a radare2 **install prefix** containing `include/libr/`
+and `lib/`. `R2XSQL_BUILD_FULL=ON` enables the libr backend and, when
+`R2XSQL_BUILD_PLUGIN=ON` (the default), `core_r2xsql` in `build/bin/`
+(`build/bin/Release/` for the MSVC Release configuration).
 
-A single configure with `-DR2XSQL_BUILD_FULL=ON` produces **both** `r2xsql` and
-`r2xsql-full` (+ the plugin). This is the standalone build; it also builds cleanly
-when vendored as a subdirectory of a larger project — the `CMakeLists.txt` here
-detects the situation and adapts.
+Without `R2XSQL_BUILD_FULL`, CMake builds the backend-neutral static library
+and examples, with no radare2 build dependency. The r2pipe backend remains
+available to C++ consumers. `R2XSQL_BUILD_EXAMPLES=OFF` disables examples.
+The project also supports being added as a CMake subdirectory.
 
 ### Building the in-r2 plugin the radare2 way (Makefile / meson)
 
-CMake above is the full build (both CLI flavors and Windows support). If you
+CMake above builds the library, examples, and plugin, including on Windows. If you
 only want the in-r2 plugin — the `core_r2xsql` module that adds the `sql`
 command inside radare2 — there is also a radare2-native build that needs no
 CMake, matching how radare2 plugins are usually built (plugin paths from
@@ -246,33 +176,32 @@ persists between requests, including analysis and comment changes.
 
 Responses are the plugin's text tables, including the row count. SQL errors
 appear as `ERROR: ...` in the body, even with HTTP status 200. The old
-`--http`, `--bind`, `--token`, `sql.http*`, and `/query` interface is removed;
+`sql.http*` and `/query` interface is removed;
 configure the native server with r2's `http.*` settings instead.
 
 ## Tests
 
-After a CMake full build, with radare2 and a C compiler on `PATH`:
+After building the plugin, with radare2 and a C compiler on `PATH`:
 
 ```sh
 python3 -m pip install pytest
 python3 -m pytest -q tests
-R2XSQL_BIN="$PWD/build/bin/r2xsql" python3 -m pytest -q tests/test_smoke.py
 ```
 
-The default test run covers the embedded CLI and native HTTP integration;
-the explicit `R2XSQL_BIN` run checks the pipe CLI. Set it for other build layouts,
-`R2XSQL_PLUGIN` for a plugin outside the CLI directory, and `R2_BIN` to choose
-the HTTP server executable. The HTTP test skips when no plugin is built.
+The tests load the plugin directly into radare2 and cover the SQL surface and
+native HTTP integration (GET and POST). They find `core_r2xsql` in `build/`,
+`build-make/`, `build-meson/`, or `out/`. Set `R2XSQL_PLUGIN` for other layouts
+and `R2_BIN` to choose the matching radare2 executable. A missing plugin fails
+the test run instead of silently skipping coverage.
 
 ## Backends (internal detail)
 
-Each binary above is one of these backends wired up — you rarely name them
-directly:
+The library retains these backends for embedding and testing:
 
-| Backend | Which binary | Notes |
+| Backend | Used by | Notes |
 |---|---|---|
-| `R2PipeBackend` | **`r2xsql`** (and forceable in `r2xsql-full` with `--r2pipe`) | Spawns and manages `radare2 -q0` over stdio. |
-| `LibrBackend`   | `r2xsql-full` | radare2 linked in-process; used automatically when the binary has libr support. |
+| `R2PipeBackend` | C++ consumers (`open_r2pipe`) | Spawns and manages `radare2 -q0` over stdio. |
+| `LibrBackend` | `core_r2xsql` and C++ consumers (`open_libr`) | Uses radare2 in-process; the plugin wraps its host core. |
 | `MockBackend`   | embedding/tests | Canned `{command → response}` map, records issued commands — no live radare2. |
 | `MockBackend`   | In-memory mock: canned command→response map, records issued commands — for embedding/offline use without a live radare2. |
 

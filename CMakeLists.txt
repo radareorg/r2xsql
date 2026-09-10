@@ -45,14 +45,10 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 # Options
 # ============================================================================
 
-option(R2XSQL_BUILD_CLI       "Build the r2xsql CLI tool"               ON)
 option(R2XSQL_BUILD_PLUGIN    "Build the in-r2 plugin (core_r2xsql)"      ON)
 option(R2XSQL_BUILD_EXAMPLES  "Build r2xsql examples"                   ${R2XSQL_STANDALONE})
 
-# The portable pipe-only `r2xsql` is ALWAYS built. R2XSQL_BUILD_FULL additionally
-# builds the in-process libr flavor `r2xsql-full` + the `core_r2xsql` plugin
-# (requires radare2 via -DRadare2_ROOT=<prefix>).
-option(R2XSQL_BUILD_FULL      "Also build the full in-process (libr) r2xsql-full + core_r2xsql plugin (needs radare2)" OFF)
+option(R2XSQL_BUILD_FULL      "Build the in-process (libr) backend and core_r2xsql plugin (needs radare2)" OFF)
 option(R2XSQL_ALLOW_STATIC_CRT_LIBR
        "Permit a static MSVC runtime (/MT) with the full/libr flavor — only safe when radare2 is also static-runtime" OFF)
 
@@ -79,14 +75,13 @@ endif()
 
 # ============================================================================
 # radare2 dependency (only the full/libr flavor needs it)
-#   The pipe-only `r2xsql` is always built and links no radare2. The full flavor
-#   (r2xsql-full + core_r2xsql plugin) is additive and requires radare2.
+#   The core library links no radare2. The optional libr backend and
+#   core_r2xsql plugin require radare2.
 # ============================================================================
 
 find_package(Radare2 QUIET)
 
-# R2XSQL_FULL_ENABLED gates every libr/full target (the r2xsql_libr object lib,
-# r2xsql-full CLI, and the plugin). The pipe-only build ignores all of this.
+# R2XSQL_FULL_ENABLED gates the r2xsql_libr object library and the plugin.
 set(R2XSQL_FULL_ENABLED OFF)
 if(R2XSQL_BUILD_FULL)
   if(Radare2_FOUND)
@@ -119,19 +114,19 @@ if(R2XSQL_BUILD_FULL)
         message(FATAL_ERROR
           "r2xsql: a static MSVC runtime (/MT) is in effect with the full/libr "
           "flavor, which frees radare2-allocated buffers with the caller's CRT. "
-          "Mixing /MT r2xsql-full with a /MD radare2 corrupts the heap at runtime. "
-          "Fix one of: build radare2 static-runtime, build pipe-only (omit "
+          "Mixing a /MT libr backend with a /MD radare2 corrupts the heap at runtime. "
+          "Fix one of: build radare2 static-runtime, build without libr (omit "
           "-DR2XSQL_BUILD_FULL), or — if radare2 is genuinely static-runtime too — "
           "pass -DR2XSQL_ALLOW_STATIC_CRT_LIBR=ON.")
       endif()
     endif()
   else()
     message(WARNING "r2xsql: R2XSQL_BUILD_FULL=ON but radare2 NOT found — skipping "
-                    "r2xsql-full + core_r2xsql plugin; building pipe-only r2xsql. "
+                    "the libr backend and core_r2xsql plugin; building the core library. "
                     "Pass -DRadare2_ROOT=<prefix> to enable the full flavor.")
   endif()
 else()
-  message(STATUS "r2xsql: pipe-only (default). Pass -DR2XSQL_BUILD_FULL=ON "
+  message(STATUS "r2xsql: core library (default). Pass -DR2XSQL_BUILD_FULL=ON "
                  "-DRadare2_ROOT=<prefix> for the full/libr flavor + plugin.")
 endif()
 
@@ -140,7 +135,7 @@ endif()
 # ============================================================================
 # Parse R2XSQL_VERSION_* from the C++ header so the embedded binary version
 # resource can never drift from version(). Enable the RC language and expose the
-# xsql_add_versioninfo() helper that CLI/plugin targets call to attach a
+# xsql_add_versioninfo() helper that the plugin calls to attach a
 # generated .rc. No-op on non-Windows.
 
 set(_r2xsql_version_hpp "${CMAKE_CURRENT_SOURCE_DIR}/src/lib/include/r2xsql/version.hpp")
@@ -178,6 +173,5 @@ else()
   message(STATUS "  Mode             : subproject")
 endif()
 message(STATUS "  Radare2_FOUND    : ${Radare2_FOUND}")
-message(STATUS "  R2XSQL_BUILD_CLI  : ${R2XSQL_BUILD_CLI}  (pipe-only r2xsql always built)")
-message(STATUS "  R2XSQL_BUILD_FULL : ${R2XSQL_BUILD_FULL} -> full enabled: ${R2XSQL_FULL_ENABLED} (r2xsql-full + core_r2xsql)")
+message(STATUS "  R2XSQL_BUILD_FULL : ${R2XSQL_BUILD_FULL} -> full enabled: ${R2XSQL_FULL_ENABLED} (libr backend + core_r2xsql)")
 message(STATUS "")
