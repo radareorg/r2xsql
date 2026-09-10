@@ -12,9 +12,6 @@
 //   --r2pipe        force the r2pipe backend (default: libr if available)
 //   --r2-exe <path> path to radare2 executable for r2pipe (default: PATH)
 //   --no-analyze    skip the implicit `aaa` at startup
-//   --http [port]   start HTTP REST server (default port: 0 = random 8100-8999)
-//   --bind <addr>   bind address for the HTTP server (default: 127.0.0.1)
-//   --token <tok>   require Bearer token on HTTP endpoints
 //   --version       print version and exit
 //   -h, --help      print this help and exit
 
@@ -24,7 +21,7 @@
 #include <xsql/database.hpp>
 #include <xsql/json.hpp>
 #include <xsql/query_script.hpp>
-#include <xsql/thinclient/http_query_server.hpp>
+
 
 #include <atomic>
 #include <chrono>
@@ -56,11 +53,6 @@ struct Args {
   bool show_help = false;
   bool show_version = false;
 
-  // HTTP server
-  bool http = false;
-  int  http_port = 0;
-  std::string http_bind = "127.0.0.1";
-  std::string http_token;
 };
 
 void print_help() {
@@ -81,9 +73,6 @@ void print_help() {
     "      --project NAME r2 project name (reuses cached analysis; saves on exit if -w)\n"
     "      --r2pipe       use the r2pipe backend (spawn radare2)\n"
     "      --r2-exe PATH  path to radare2 executable for r2pipe\n"
-    "      --http [port]  start HTTP REST server (default: random 8100-8999)\n"
-    "      --bind <addr>  bind address for --http (default: 127.0.0.1)\n"
-    "      --token <tok>  require Bearer token on HTTP endpoints\n"
     "      --version      print version and exit\n"
     "  -h, --help         print this help and exit\n",
     r2xsql::version());
@@ -110,20 +99,8 @@ int parse_args(int argc, char** argv, Args& a) {
     if (k == "-f") { auto v = need("-f"); if (!v) return 2; a.script_file = v; continue; }
     if (k == "--r2-exe") { auto v = need("--r2-exe"); if (!v) return 2; a.r2_exe = v; continue; }
     if (k == "--project") { auto v = need("--project"); if (!v) return 2; a.project = v; continue; }
-    if (k == "--http") {
-      a.http = true;
-      // Optional port argument: --http [port]
-      if (i + 1 < argc) {
-        std::string_view next = argv[i + 1];
-        if (!next.empty() && next[0] != '-') {
-          try { a.http_port = std::stoi(std::string(next)); ++i; }
-          catch (...) { /* leave port = 0 */ }
-        }
-      }
-      continue;
-    }
-    if (k == "--bind")  { auto v = need("--bind");  if (!v) return 2; a.http_bind  = v; continue; }
-    if (k == "--token") { auto v = need("--token"); if (!v) return 2; a.http_token = v; continue; }
+    if (k == "--bind")  { auto v = need("--bind");  if (!v) return 2; continue; }
+    if (k == "--token") { auto v = need("--token"); if (!v) return 2; continue; }
     std::fprintf(stderr, "r2xsql: unknown argument: %.*s\n",
                  (int)k.size(), k.data());
     return 2;
@@ -294,102 +271,7 @@ int run_repl(r2xsql::Session& s) {
   return 0;
 }
 
-// ---------------------------------------------------------------------------
-// HTTP server
-// ---------------------------------------------------------------------------
 
-static std::atomic<bool> g_shutdown_flag{false};
-
-extern "C" void on_signal(int /*sig*/) { g_shutdown_flag.store(true); }
-
-// Run a SQL query/script and serialize the canonical run_script envelope
-// (`{success, statement_count, results:[{columns,rows,...}]}`), matching the
-// rest of the xsql family (idasql/bnsql/ghidrasql). Going through run_script
-// gives multi-statement support and lets the thinclient's ?format=text|csv|tsv
-// re-render the result (it parses this envelope back via json_to_script_result).
-static std::string query_to_envelope(r2xsql::Session& s, const std::string& body) {
-  auto exec = [&s](const std::string& sql, xsql::ScriptStatementResult& out) {
-    auto r = s.query(sql);
-    out.success = r.ok();
-    out.error = r.error;
-    out.columns = r.columns;
-    out.rows.reserve(r.rows.size());
-    for (const auto& row : r.rows) out.rows.push_back(row.values);
-  };
-  return xsql::script_result_to_json(xsql::run_script(body, {}, std::ref(exec)));
-}
-
-static std::string build_help_text() {
-  std::ostringstream out;
-  out << "r2xsql HTTP REST API\n"
-      << "===================\n\n"
-      << "SQL interface for radare2 sessions via HTTP.\n\n"
-      << "Endpoints:\n"
-      << "  GET  /         - Welcome message\n"
-      << "  GET  /help     - This documentation\n"
-      << "  POST /query    - Execute SQL (body = raw SQL, response = JSON)\n"
-      << "                   or a raw r2 command: body \".r2cmd <command>\"\n"
-      << "  GET  /status   - Server health check\n"
-      << "  POST /shutdown - Stop server\n\n"
-      << "Discover Schema:\n"
-      << "  SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;\n"
-      << "  PRAGMA table_info(funcs);\n\n"
-      << "Starter Query:\n"
-      << "  SELECT * FROM binary;\n\n"
-      << "Response Format:\n"
-      << "  Success: {\"success\": true, \"columns\": [...], \"rows\": [[...]], \"row_count\": N}\n"
-      << "  Error:   {\"success\": false, \"error\": \"message\"}\n"
-      << "  .r2cmd:  {\"success\": true, \"output\": \"<raw r2 output>\"}\n";
-  return out.str();
-}
-
-int run_http(r2xsql::Session& s, const Args& a) {
-  xsql::thinclient::http_query_server_config cfg;
-  cfg.tool_name = "r2xsql";
-  cfg.help_text = build_help_text();
-  cfg.port = a.http_port;
-  cfg.bind_address = a.http_bind;
-  cfg.auth_token = a.http_token;
-  cfg.use_queue = false;
-  cfg.query_fn = [&s](const std::string& body) -> std::string {
-    // Raw r2 passthrough sugar: a body of ".r2cmd <command>" forwards the
-    // command to the backend and returns {"success", "output"} instead of
-    // the tabular SQL envelope.
-    static constexpr std::string_view kRaw = ".r2cmd ";
-    size_t i = body.find_first_not_of(" \t\r\n");
-    if (i != std::string::npos && body.compare(i, kRaw.size(), kRaw) == 0) {
-      std::string out = s.raw_cmd(body.substr(i + kRaw.size()));
-      return xsql::json{{"success", true}, {"output", out}}.dump();
-    }
-    return query_to_envelope(s, body);
-  };
-  cfg.status_fn = []() {
-    return xsql::json{{"mode", "cli"}, {"tool", "r2xsql"}};
-  };
-
-  xsql::thinclient::http_query_server server(cfg);
-  int port = server.start();
-  if (port < 0) {
-    std::fprintf(stderr, "r2xsql: failed to start HTTP server on %s:%d\n",
-                 a.http_bind.c_str(), a.http_port);
-    return 1;
-  }
-
-  std::printf("r2xsql HTTP server: http://%s:%d\n", a.http_bind.c_str(), port);
-  std::printf("Press Ctrl+C to stop.\n");
-  std::fflush(stdout);
-
-  std::signal(SIGINT, on_signal);
-  std::signal(SIGTERM, on_signal);
-
-  while (server.is_running() && !g_shutdown_flag.load()) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  }
-
-  server.stop();
-  std::printf("r2xsql: HTTP server stopped.\n");
-  return 0;
-}
 
 }  // namespace
 
@@ -408,7 +290,7 @@ int main(int argc, char** argv) {
   }
 
   // No source and nothing else to do? Print help.
-  if (a.source.empty() && a.sql.empty() && a.script_file.empty() && !a.repl && !a.http) {
+  if (a.source.empty() && a.sql.empty() && a.script_file.empty() && !a.repl) {
     print_help();
     return 0;
   }
@@ -419,7 +301,6 @@ int main(int argc, char** argv) {
 
   if (!a.sql.empty())          return run_sql(s, a.sql);
   if (!a.script_file.empty())  return run_script(s, a.script_file);
-  if (a.http)                  return run_http(s, a);
   if (a.repl)                  return run_repl(s);
 
   print_help();

@@ -58,7 +58,7 @@ option(R2XSQL_ALLOW_STATIC_CRT_LIBR
 
 # Force libxsql's thinclient on so the HTTP path is available.
 set(XSQL_WITH_THINCLIENT ON CACHE BOOL "" FORCE)
-set(HTTPLIB_USE_OPENSSL_IF_AVAILABLE OFF CACHE BOOL "" FORCE)
+
 
 # ============================================================================
 # libxsql dependency
