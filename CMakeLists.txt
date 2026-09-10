@@ -45,13 +45,11 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 # Options
 # ============================================================================
 
-option(R2XSQL_BUILD_CLI       "Build the r2xsql CLI tool"               ON)
+
 option(R2XSQL_BUILD_PLUGIN    "Build the in-r2 plugin (core_r2xsql)"      ON)
 option(R2XSQL_BUILD_EXAMPLES  "Build r2xsql examples"                   ${R2XSQL_STANDALONE})
 
-# The portable pipe-only `r2xsql` is ALWAYS built. R2XSQL_BUILD_FULL additionally
-# builds the in-process libr flavor `r2xsql-full` + the `core_r2xsql` plugin
-# (requires radare2 via -DRadare2_ROOT=<prefix>).
+
 option(R2XSQL_BUILD_FULL      "Also build the full in-process (libr) r2xsql-full + core_r2xsql plugin (needs radare2)" OFF)
 option(R2XSQL_ALLOW_STATIC_CRT_LIBR
        "Permit a static MSVC runtime (/MT) with the full/libr flavor — only safe when radare2 is also static-runtime" OFF)
@@ -178,6 +176,6 @@ else()
   message(STATUS "  Mode             : subproject")
 endif()
 message(STATUS "  Radare2_FOUND    : ${Radare2_FOUND}")
-message(STATUS "  R2XSQL_BUILD_CLI  : ${R2XSQL_BUILD_CLI}  (pipe-only r2xsql always built)")
+
 message(STATUS "  R2XSQL_BUILD_FULL : ${R2XSQL_BUILD_FULL} -> full enabled: ${R2XSQL_FULL_ENABLED} (r2xsql-full + core_r2xsql)")
 message(STATUS "")
