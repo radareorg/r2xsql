@@ -28,9 +28,7 @@
 #include <xsql/query_script.hpp>
 #include <xsql/thinclient/http_query_server.hpp>
 
-#if R2XSQL_HAS_MCP
-#  include "../common/mcp_server.hpp"
-#endif
+
 
 #include <atomic>
 #include <chrono>
@@ -68,9 +66,7 @@ struct Args {
   std::string http_bind = "127.0.0.1";
   std::string http_token;
 
-  // MCP server (always-on once R2XSQL_WITH_MCP=ON, which is the default).
-  bool mcp = false;
-  int  mcp_port = 0;
+
 };
 
 void print_help() {
@@ -92,7 +88,7 @@ void print_help() {
     "      --r2pipe       use the r2pipe backend (spawn radare2)\n"
     "      --r2-exe PATH  path to radare2 executable for r2pipe\n"
     "      --http [port]  start HTTP REST server (default: random 8100-8999)\n"
-    "      --mcp  [port]  start MCP SSE server   (default: random 9000-9999)\n"
+    ""
     "      --bind <addr>  bind address for --http / --mcp (default: 127.0.0.1)\n"
     "      --token <tok>  require Bearer token on HTTP endpoints\n"
     "      --version      print version and exit\n"
@@ -133,17 +129,7 @@ int parse_args(int argc, char** argv, Args& a) {
       }
       continue;
     }
-    if (k == "--mcp") {
-      a.mcp = true;
-      if (i + 1 < argc) {
-        std::string_view next = argv[i + 1];
-        if (!next.empty() && next[0] != '-') {
-          try { a.mcp_port = std::stoi(std::string(next)); ++i; }
-          catch (...) { /* leave port = 0 */ }
-        }
-      }
-      continue;
-    }
+
     if (k == "--bind")  { auto v = need("--bind");  if (!v) return 2; a.http_bind  = v; continue; }
     if (k == "--token") { auto v = need("--token"); if (!v) return 2; a.http_token = v; continue; }
     std::fprintf(stderr, "r2xsql: unknown argument: %.*s\n",
@@ -417,49 +403,7 @@ int run_http(r2xsql::Session& s, const Args& a) {
 // MCP server (SSE / JSON-RPC via fastmcpp)
 // ---------------------------------------------------------------------------
 
-#if R2XSQL_HAS_MCP
-int run_mcp(r2xsql::Session& s, const Args& a) {
-  r2xsql::QueryCallback sql_cb = [&s](const std::string& sql) -> std::string {
-    return query_to_envelope(s, sql);
-  };
 
-  r2xsql::McpServer mcp;
-  // use_queue=true so the SSE transport thread queues each request and
-  // run_until_stopped() drains them serially on the main thread. This
-  // keeps Ctrl+C responsive and serializes requests against each other.
-  int port = mcp.start(a.mcp_port, sql_cb,
-                       a.http_bind.empty() ? "127.0.0.1" : a.http_bind,
-                       /*use_queue=*/true);
-  if (port <= 0) {
-    std::fprintf(stderr, "r2xsql: failed to start MCP server on %s:%d\n",
-                 a.http_bind.c_str(), a.mcp_port);
-    return 1;
-  }
-
-  std::printf("%s", r2xsql::format_mcp_info(port, mcp.bind_addr()).c_str());
-  std::printf("Press Ctrl+C to stop.\n");
-  std::fflush(stdout);
-
-  std::signal(SIGINT, on_signal);
-  std::signal(SIGTERM, on_signal);
-#ifdef _WIN32
-  std::signal(SIGBREAK, on_signal);
-#endif
-
-  mcp.set_interrupt_check([]() { return g_shutdown_flag.load(); });
-  mcp.run_until_stopped();
-
-  std::printf("r2xsql: MCP server stopped.\n");
-  return 0;
-}
-#else
-int run_mcp(r2xsql::Session&, const Args&) {
-  std::fprintf(stderr,
-               "r2xsql: MCP support not compiled in. "
-               "Rebuild with -DR2XSQL_WITH_MCP=ON.\n");
-  return 1;
-}
-#endif
 
 }  // namespace
 
@@ -478,7 +422,7 @@ int main(int argc, char** argv) {
   }
 
   // No source and nothing else to do? Print help.
-  if (a.source.empty() && a.sql.empty() && a.script_file.empty() && !a.repl && !a.http && !a.mcp) {
+  if (a.source.empty() && a.sql.empty() && a.script_file.empty() && !a.repl && !a.http) {
     print_help();
     return 0;
   }
@@ -490,7 +434,6 @@ int main(int argc, char** argv) {
   if (!a.sql.empty())          return run_sql(s, a.sql);
   if (!a.script_file.empty())  return run_script(s, a.script_file);
   if (a.http)                  return run_http(s, a);
-  if (a.mcp)                   return run_mcp(s, a);
   if (a.repl)                  return run_repl(s);
 
   print_help();

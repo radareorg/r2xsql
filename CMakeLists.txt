@@ -52,7 +52,7 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 option(R2XSQL_BUILD_CLI       "Build the r2xsql CLI tool"               ON)
 option(R2XSQL_BUILD_PLUGIN    "Build the in-r2 plugin (core_r2xsql)"      ON)
 option(R2XSQL_BUILD_EXAMPLES  "Build r2xsql examples"                   ${R2XSQL_STANDALONE})
-option(R2XSQL_WITH_MCP        "Build with MCP server support (fastmcpp)" ON)
+
 # The portable pipe-only `r2xsql` is ALWAYS built. R2XSQL_BUILD_FULL additionally
 # builds the in-process libr flavor `r2xsql-full` + the `core_r2xsql` plugin
 # (requires radare2 via -DRadare2_ROOT=<prefix>).
@@ -147,23 +147,7 @@ endif()
 # fastmcpp (optional, for MCP support)
 # ============================================================================
 
-if(R2XSQL_WITH_MCP)
-  if(NOT TARGET fastmcpp_core)
-    set(FASTMCPP_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-    set(FASTMCPP_ENABLE_POST_STREAMING OFF CACHE BOOL "" FORCE)
-    set(FASTMCPP_ENABLE_SAMPLING_HTTP_HANDLERS OFF CACHE BOOL "" FORCE)
-    set(FASTMCPP_FETCH_CURL OFF CACHE BOOL "" FORCE)
-    # fastmcpp is a first-party dep we own — track main so r2xsql builds against
-    # the latest (only third-party deps are pinned to a fixed tag).
-    FetchContent_Declare(fastmcpp
-      GIT_REPOSITORY https://github.com/0xeb/fastmcpp.git
-      GIT_TAG        main)
-    FetchContent_MakeAvailable(fastmcpp)
-  endif()
-  if(MSVC AND TARGET fastmcpp_core)
-    target_compile_options(fastmcpp_core PRIVATE /MP)
-  endif()
-endif()
+
 
 # ============================================================================
 # Windows VERSIONINFO resource (version.hpp is the source of truth)
@@ -210,5 +194,5 @@ endif()
 message(STATUS "  Radare2_FOUND    : ${Radare2_FOUND}")
 message(STATUS "  R2XSQL_BUILD_CLI  : ${R2XSQL_BUILD_CLI}  (pipe-only r2xsql always built)")
 message(STATUS "  R2XSQL_BUILD_FULL : ${R2XSQL_BUILD_FULL} -> full enabled: ${R2XSQL_FULL_ENABLED} (r2xsql-full + core_r2xsql)")
-message(STATUS "  R2XSQL_WITH_MCP   : ${R2XSQL_WITH_MCP}")
+
 message(STATUS "")
