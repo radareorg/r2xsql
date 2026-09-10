@@ -94,7 +94,7 @@ r2xsql-full — radare2 drop-in (overlay, embedded/libr flavor)
 Extract this archive ON TOP OF your radare2 install prefix (the directory
 that contains bin/radare2[.exe]). It adds:
 
-  bin/r2xsql-full[.exe]          full CLI + HTTP server (in-process libr)
+  bin/r2xsql-full[.exe]          full CLI (in-process libr)
   ${REL_PLUGIN}/core_r2xsql.*    in-r2 plugin (load inside r2: L core_r2xsql.<ext>)
 
 Because r2xsql-full then sits next to radare2[.exe], the libr backend finds

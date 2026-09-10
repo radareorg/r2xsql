@@ -314,7 +314,7 @@ std::string dispatch_write(Backend* be, int64_t addr, const std::string& command
 // if the write itself reports an error -- so this table can never leak a
 // changed io.cache setting into a concurrent caller sharing the same
 // in-process core (the reasoning `search.in`/flagspace already documented:
-// the libr plugin shares one core across its interactive/HTTP callers).
+// the libr plugin shares one core across its interactive/remote callers).
 // This is `e io.cache`/`e io.cache=false`/`e io.cache=<prior>` as three
 // plain Backend::cmd() calls (not chained into one string), matching
 // radare2's own C-API idiom's shape -- read, then set, then [operate], then
