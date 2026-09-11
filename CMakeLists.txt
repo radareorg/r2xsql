@@ -18,12 +18,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Build every static library — including the fetched libxsql and fastmcpp — as
+# Build every static library — including the fetched libxsql — as
 # position-independent code. The core_r2xsql plugin is a shared module, and on
 # Linux GNU ld refuses to link non-PIC static objects into a .so
-# ("relocation R_X86_64_TPOFF32 against `__tls_guard' ... recompile with -fPIC",
-# seen with fastmcpp_core). Must be set BEFORE the deps are fetched/added so the
-# FetchContent targets inherit it. No-op on macOS/Windows (PIC by default).
+# ("relocation R_X86_64_TPOFF32 against `__tls_guard' ... recompile with -fPIC").
+# Must be set BEFORE the deps are fetched/added so the FetchContent targets
+# inherit it. No-op on macOS/Windows (PIC by default).
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # Detect standalone vs subproject build (mirrors libxsql's pattern).
@@ -142,12 +142,6 @@ else()
   message(STATUS "r2xsql: pipe-only (default). Pass -DR2XSQL_BUILD_FULL=ON "
                  "-DRadare2_ROOT=<prefix> for the full/libr flavor + plugin.")
 endif()
-
-# ============================================================================
-# fastmcpp (optional, for MCP support)
-# ============================================================================
-
-
 
 # ============================================================================
 # Windows VERSIONINFO resource (version.hpp is the source of truth)

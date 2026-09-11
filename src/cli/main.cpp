@@ -13,12 +13,10 @@
 //   --r2-exe <path> path to radare2 executable for r2pipe (default: PATH)
 //   --no-analyze    skip the implicit `aaa` at startup
 //   --http [port]   start HTTP REST server (default port: 0 = random 8100-8999)
-//   --mcp  [port]   start MCP SSE server   (default port: 0 = random 9000-9999)
-//   --bind <addr>   bind address for HTTP/MCP server (default: 127.0.0.1)
+//   --bind <addr>   bind address for the HTTP server (default: 127.0.0.1)
 //   --token <tok>   require Bearer token on HTTP endpoints
 //   --version       print version and exit
 //   -h, --help      print this help and exit
-// MCP support requires R2XSQL_WITH_MCP=ON (the default; uses fastmcpp).
 
 #include <r2xsql/r2xsql.hpp>
 #include <r2xsql/backend_mock.hpp>
@@ -27,8 +25,6 @@
 #include <xsql/json.hpp>
 #include <xsql/query_script.hpp>
 #include <xsql/thinclient/http_query_server.hpp>
-
-
 
 #include <atomic>
 #include <chrono>
@@ -65,8 +61,6 @@ struct Args {
   int  http_port = 0;
   std::string http_bind = "127.0.0.1";
   std::string http_token;
-
-
 };
 
 void print_help() {
@@ -88,8 +82,7 @@ void print_help() {
     "      --r2pipe       use the r2pipe backend (spawn radare2)\n"
     "      --r2-exe PATH  path to radare2 executable for r2pipe\n"
     "      --http [port]  start HTTP REST server (default: random 8100-8999)\n"
-    ""
-    "      --bind <addr>  bind address for --http / --mcp (default: 127.0.0.1)\n"
+    "      --bind <addr>  bind address for --http (default: 127.0.0.1)\n"
     "      --token <tok>  require Bearer token on HTTP endpoints\n"
     "      --version      print version and exit\n"
     "  -h, --help         print this help and exit\n",
@@ -398,12 +391,6 @@ int run_http(r2xsql::Session& s, const Args& a) {
   std::printf("r2xsql: HTTP server stopped.\n");
   return 0;
 }
-
-// ---------------------------------------------------------------------------
-// MCP server (SSE / JSON-RPC via fastmcpp)
-// ---------------------------------------------------------------------------
-
-
 
 }  // namespace
 
