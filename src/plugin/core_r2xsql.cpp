@@ -112,20 +112,12 @@ static RCoreHelpMessage help_msg_sql_views = {
     "", "ir_v_calls, ir_v_mem_reads, ir_v_mem_writes", "",
     nullptr};
 
-void print_help(RCore* core) {
-  r_cons_cmd_help(core->cons, help_msg_sql);
-}
-
-void print_dot_help(RCore* core) {
-  r_cons_cmd_help(core->cons, help_msg_sql_dot);
-}
-
-void print_tables(RCore* core) {
-  r_cons_cmd_help(core->cons, help_msg_sql_tables);
-}
-
-void print_views(RCore* core) {
-  r_cons_cmd_help(core->cons, help_msg_sql_views);
+void print_help(RCore* core, RCoreHelpMessage help = help_msg_sql) {
+#if R2_ABIVERSION >= 125
+  r_cons_cmd_help(core->cons, help);
+#else
+  r_core_cmd_help(core, help);
+#endif
 }
 
 #if defined(XSQL_HAS_THINCLIENT)
@@ -144,9 +136,7 @@ std::string plugin_query_envelope(r2xsql::Session& s, const std::string& body) {
   };
   return xsql::script_result_to_json(xsql::run_script(body, {}, std::ref(exec)));
 }
-#endif
 
-#if defined(XSQL_HAS_THINCLIENT)
 // Run a request body against the shared session: ".r2cmd <command>" forwards
 // a raw r2 command (returns {"success","output"}); anything else is SQL.
 // Locks g_state.mu so concurrent transports serialize against r2's command
@@ -171,9 +161,7 @@ std::string plugin_raw_or_sql(const std::string& body) {
     return xsql::json{{"success", false}, {"error", "unknown exception"}}.dump();
   }
 }
-#endif
 
-#if defined(XSQL_HAS_THINCLIENT)
 void handle_http_command(RCore* core, const char* tail) {
   // tail points after "http": empty, " <port>", "-", or "?"
   while (*tail == ' ' || *tail == '\t') ++tail;
@@ -303,19 +291,19 @@ bool dispatch(RCore* core, const char* input) {
 
   // The dotted namespace is reserved for plugin subcommands, never SQL.
   if (std::strcmp(input, ".") == 0 || std::strcmp(input, ".?") == 0) {
-    print_dot_help(core);
+    print_help(core, help_msg_sql_dot);
     return true;
   }
 
   if (std::strcmp(input, ".tables") == 0 ||
       std::strcmp(input, ".tables?") == 0) {
-    print_tables(core);
+    print_help(core, help_msg_sql_tables);
     return true;
   }
 
   if (std::strcmp(input, ".views") == 0 ||
       std::strcmp(input, ".views?") == 0) {
-    print_views(core);
+    print_help(core, help_msg_sql_views);
     return true;
   }
 
