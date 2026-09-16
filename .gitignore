@@ -17,7 +17,6 @@ _deps/
 
 # IDE/editor
 .vs/
-.pmai/
 .vscode/
 .idea/
 *.user

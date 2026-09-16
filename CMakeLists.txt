@@ -18,12 +18,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Build every static library — including the fetched libxsql — as
-# position-independent code. The core_r2xsql plugin is a shared module, and on
-# Linux GNU ld refuses to link non-PIC static objects into a .so
-# ("relocation R_X86_64_TPOFF32 against `__tls_guard' ... recompile with -fPIC").
-# Must be set BEFORE the deps are fetched/added so the FetchContent targets
-# inherit it. No-op on macOS/Windows (PIC by default).
+# Build static dependencies with PIC so they can link into core_r2xsql.
+# Set this before fetching/adding dependencies so their targets inherit it.
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # Detect standalone vs subproject build (mirrors libxsql's pattern).
@@ -188,5 +184,4 @@ endif()
 message(STATUS "  Radare2_FOUND    : ${Radare2_FOUND}")
 message(STATUS "  R2XSQL_BUILD_CLI  : ${R2XSQL_BUILD_CLI}  (pipe-only r2xsql always built)")
 message(STATUS "  R2XSQL_BUILD_FULL : ${R2XSQL_BUILD_FULL} -> full enabled: ${R2XSQL_FULL_ENABLED} (r2xsql-full + core_r2xsql)")
-
 message(STATUS "")

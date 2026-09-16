@@ -581,7 +581,7 @@ class Api {
 // `core` is an `RCore*`, passed as void* to keep <r_core.h> out of this header;
 // `core_mutex` is the owning backend's, so a direct read cannot interleave with
 // a command issued on another thread (the in-r2 plugin shares one core between
-// its interactive, HTTP and MCP callers).
+// its interactive and HTTP callers).
 std::unique_ptr<Api> make_libr_api(void* core, std::mutex& core_mutex);
 
 }  // namespace r2xsql::direct

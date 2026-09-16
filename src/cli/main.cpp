@@ -122,7 +122,6 @@ int parse_args(int argc, char** argv, Args& a) {
       }
       continue;
     }
-
     if (k == "--bind")  { auto v = need("--bind");  if (!v) return 2; a.http_bind  = v; continue; }
     if (k == "--token") { auto v = need("--token"); if (!v) return 2; a.http_token = v; continue; }
     std::fprintf(stderr, "r2xsql: unknown argument: %.*s\n",
@@ -426,4 +425,3 @@ int main(int argc, char** argv) {
   print_help();
   return 0;
 }
-

@@ -45,7 +45,7 @@ public:
 
   // Convenience: execute a SQL statement and return the result.
   // Thread-safe: serialized against other query()/raw_cmd() calls so a shared
-  // Session can back an HTTP/MCP server with use_queue=false (concurrent
+  // Session can back an HTTP server with use_queue=false (concurrent
   // clients) as well as interactive use, without racing SQLite or the backend.
   xsql::Result query(std::string_view sql);
 
