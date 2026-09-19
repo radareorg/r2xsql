@@ -71,7 +71,7 @@ unless you ask for more, and it does everything the SQL surface offers. If you
 are reading this and unsure — this is your answer. Stop here.
 
 `r2xsql-full` is an **optional second binary** you opt into with
-`-DR2XSQL_BUILD_FULL=ON`. Same SQL, same CLI, same HTTP server — the *only* reasons
+`-DR2XSQL_BUILD_FULL=ON`. Same SQL, same CLI — the *only* reasons
 to build it are:
 
 1. you want to run SQL **inside a live radare2 session** (it ships the in-r2
@@ -203,8 +203,7 @@ meson install -C build-meson                 # into R2_LIBR_PLUGINS
 meson setup build-meson -Dr2_user_plugins=true   # ... or the per-user dir
 ```
 
-Both build the same plugin: the `sql` command plus the HTTP REST server
-started with `sql.http`. All builds use
+Both build the same plugin: the `sql` command. All builds use
 [`r2mcp`](https://github.com/radareorg/radare2-mcp) for MCP access to the
 plugin's `sql` command; r2xsql no longer embeds an MCP server. Both
 consume [`libxsql`](https://github.com/0xeb/libxsql): the Makefile uses a
@@ -257,7 +256,7 @@ truncate SQL operators such as `>` or `|`. Plugin commands such as `sql.?`
 remain available through `run_command`.
 
 For HTTP MCP transport, start `r2mcp -r -H 8765` with the plugin installed.
-This is separate from r2xsql's SQL REST server (`--http` / `sql.http`), which
+This is separate from any external REST interfaces, which
 remains available. The old `--mcp`, `sql.mcp`, `r2xsql_query` tool, and
 `R2XSQL_WITH_MCP` build option have been removed.
 
@@ -286,7 +285,7 @@ directly:
 ## Skills (Claude Code / Codex)
 
 Agent skills teach Claude Code and Codex to drive `r2xsql`: query and annotate
-radare2 analysis through SQL, pick the right backend, and reach the HTTP
+radare2 analysis through SQL, pick the right backend, and reach the
 server or use MCP through r2mcp. They ship in the radare2 community skills catalog,
 **[`radare2-skills`](https://github.com/radareorg/radare2-skills)**, as the
 `r2xsql/` category alongside `dev/`, `r2mcp/` and `radius2/`. Install a category
