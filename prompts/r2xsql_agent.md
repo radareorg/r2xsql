@@ -41,8 +41,8 @@ cache exists only for the duration of a single query. Consequences:
 - If analysis state changes (you rename a function, run more analysis, open a
   project), the next query reflects it immediately. No "refresh" needed.
 - Repeated identical queries each pay the radare2 round-trip again. For
-  interactive drilling, **start a server once and query repeatedly** (see
-  *Server Modes*) rather than re-launching the CLI per query.
+  interactive drilling, **keep one session alive** (the `-i` REPL, or the
+  in-r2 plugin) rather than re-launching the CLI per query.
 - Broad, unfiltered scans of per-function tables are expensive (they enumerate
   every function). **Use pushdown filters** wherever they exist.
 
@@ -115,7 +115,6 @@ r2xsql -s ./target.exe -i
 | `--project NAME`    | radare2 project name; reuses cached analysis, saves on exit if `-w` |
 | `--r2pipe`          | Force the r2pipe backend (spawn `radare2`) even in the full build |
 | `--r2-exe PATH`     | Path to the `radare2` executable for r2pipe (default: search PATH) |
-
 | `--version`         | Print version and exit                                           |
 | `-h`, `--help`      | Print help and exit                                              |
 
@@ -1195,7 +1194,7 @@ Sets `search.in=io.maps.x` for the duration of its own search and restores
 `io.maps` afterward, in ONE `Backend::cmd()` call — the same atomic
 set/search/restore idiom `rop_gadgets` uses, and for the same reason
 (`search.in` is session-global config that leaks past the command that set
-it, shared across concurrent interactive/HTTP callers). Does **not** use
+it, shared across concurrent interactive callers). Does **not** use
 `Backend::cmd_noeval` — the atomic three-command chain is structurally
 incompatible with cmd_noeval's single no-eval-command dispatch, so `asm`'s
 charset allowlist (same validator as `assemble`) is what makes this safe on
@@ -1937,7 +1936,7 @@ statement in the string, not just the first.
 
 Per-session runtime controls live in the **writable** `runtime_settings` table;
 read with `SELECT`, change with `UPDATE`. Settings are per-session: each open
-binary / server has its own state.
+binary has its own state.
 
 #### `runtime_settings` (writable)
 One row per runtime setting, reflecting the **current** value.
@@ -2028,9 +2027,9 @@ SELECT printf('0x%x', addr) AS at, bytes FROM instructions WHERE func_addr = 0x4
    cheap.
 4. **Filter on integers/addresses,** not on stringified disassembly where you
    can avoid it.
-5. **Reuse via a server.** Tables rebuild per query (no persistent cache) — for
-   repeated drilling, run `--http` once and query the warm session, or use
-   r2mcp with the in-r2 plugin.
+5. **Reuse a live session.** Tables rebuild per query (no persistent cache) — for
+   repeated drilling, keep the session warm with the `-i` REPL or r2mcp with the
+   in-r2 plugin.
 6. **Materialize repeated broad scans.** If you need an unfiltered `xrefs` set
    several times in a session, snapshot it:
 
@@ -2181,8 +2180,6 @@ When the table surface can't express the question, reach the engine directly:
 
 - **CLI `-q` / REPL:** a line beginning with `.` runs raw radare2 (the `.` is
   stripped): `r2xsql -s a.bin -q ".pdf @ entry0"`.
-- **HTTP:** `POST /query` with a body beginning `.r2cmd ` → `{"success":true,
-  "output":"<raw output>"}`.
 - **In-r2 plugin:** you're already in the radare2 shell.
 - **r2js:** scripts run *inside* radare2 (`r2cmd("aflj")` returns JSON); they
   don't see the SQL database — bridge results back via flags/comments.
@@ -2194,34 +2191,10 @@ parsing, no pushdown. **You** parse the output.
 
 ## Server Modes
 
-### HTTP REST (recommended for repeated queries)
-```bash
-r2xsql -s ./target.exe --http 8080
-r2xsql -s ./target.exe --http --bind 0.0.0.0 --token s3cret   # bind everywhere + auth
-```
-`--http` with no port picks a random port in **8100–8999**.
-
-| Endpoint        | Method | Purpose                                                   |
-|-----------------|--------|-----------------------------------------------------------|
-| `/`             | GET    | banner / welcome                                          |
-| `/help`         | GET    | embedded API help                                         |
-| `/query`        | POST   | body = SQL, or `.r2cmd <command>` for raw radare2         |
-| `/status`       | GET    | health check (`{"mode":"cli","tool":"r2xsql"}`)            |
-| `/shutdown`     | POST   | graceful stop                                             |
-
-Response envelope:
-```json
-{ "success": true, "columns": ["name","size"], "rows": [["main","42"]], "row_count": 1 }
-```
-On error: `{ "success": false, "error": "<message>" }`. With `--token`, every
-endpoint except `/` and `/help` requires `Authorization: Bearer <tok>` (or
-`X-XSQL-Token: <tok>`).
-
-```bash
-curl -X POST http://127.0.0.1:8080/query \
-  --data 'SELECT name, size FROM funcs ORDER BY size DESC LIMIT 5'
-curl -X POST http://127.0.0.1:8080/query --data '.r2cmd ?V'   # raw radare2
-```
+The embedded HTTP REST server (`--http` / `sql.http`) has been **removed**. For
+repeated queries against a warm session, use the `-i` REPL or the in-r2 plugin;
+for remote/agent access, use **r2mcp** (which also offers its own HTTP MCP
+transport, `r2mcp -r -H <port>`).
 
 ### MCP via r2mcp
 
@@ -2239,7 +2212,7 @@ executable does not provide the in-r2 plugin.
 After loading the plugin inside radare2 (`L core_r2xsql.dll`):
 ```text
 sql <SQL>            run one query against the host RCore
-sql.http [port]      start / sql.http-  stop / sql.http?  status
+sql.?                list the sql.* subcommands
 ```
 
 ---

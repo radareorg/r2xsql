@@ -44,9 +44,9 @@ public:
   const RuntimeSettings& runtime_settings() const { return runtime_settings_; }
 
   // Convenience: execute a SQL statement and return the result.
-  // Thread-safe: serialized against other query()/raw_cmd() calls so a shared
-  // Session can back a concurrent server with use_queue=false (concurrent
-  // clients) as well as interactive use, without racing SQLite or the backend.
+  // Thread-safe: serialized against other query()/raw_cmd() calls, so one
+  // Session can be shared by concurrent callers as well as used interactively,
+  // without racing SQLite or the backend.
   xsql::Result query(std::string_view sql);
 
   // Escape hatch: forward an arbitrary r2 command straight to the backend

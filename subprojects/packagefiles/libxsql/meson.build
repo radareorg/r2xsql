@@ -2,7 +2,7 @@
 # meson overlay for libxsql (which is CMake-native upstream). Applied via the
 # libxsql.wrap patch_directory so the r2xsql meson build can consume libxsql
 # without CMake. Mirrors libxsql/CMakeLists.txt: the xsql static lib over the
-# vendored sqlite3 amalgamation + header-only nlohmann/httplib, thinclient on.
+# vendored sqlite3 amalgamation + header-only nlohmann.
 project('libxsql', ['c', 'cpp'],
   meson_version: '>=0.57.0',
   default_options: ['cpp_std=c++17'])
@@ -33,12 +33,9 @@ sqlite3_lib = static_library('sqlite3',
 xsql_inc = include_directories(
   'include',
   'external/sqlite',
-  'external/nlohmann/include',
-  'external/httplib')
+  'external/nlohmann/include')
 
-# XSQL_HAS_THINCLIENT mirrors r2xsql's CMake FORCE (XSQL_WITH_THINCLIENT ON);
-# httplib is header-only so it adds includes only, no extra objects.
-xsql_defs = ['-DXSQL_HAS_THINCLIENT', '-DXSQL_VERSION_STRING="' + libxsql_ver + '"']
+xsql_defs = ['-DXSQL_VERSION_STRING="' + libxsql_ver + '"']
 
 xsql_lib = static_library('xsql',
   'src/aggregates.cpp',
@@ -51,8 +48,7 @@ xsql_lib = static_library('xsql',
   link_with: sqlite3_lib,
   pic: true)
 
-# Consumers get the include dirs + the thinclient define transitively.
+# Consumers get the include dirs transitively.
 xsql_dep = declare_dependency(
   link_with: [xsql_lib, sqlite3_lib],
-  include_directories: xsql_inc,
-  compile_args: ['-DXSQL_HAS_THINCLIENT'])
+  include_directories: xsql_inc)

@@ -23,9 +23,6 @@
 #include <xsql/query_script.hpp>
 
 
-#include <atomic>
-#include <chrono>
-#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -34,7 +31,6 @@
 #include <sstream>
 #include <string>
 #include <string_view>
-#include <thread>
 #include <vector>
 
 namespace {
@@ -99,8 +95,6 @@ int parse_args(int argc, char** argv, Args& a) {
     if (k == "-f") { auto v = need("-f"); if (!v) return 2; a.script_file = v; continue; }
     if (k == "--r2-exe") { auto v = need("--r2-exe"); if (!v) return 2; a.r2_exe = v; continue; }
     if (k == "--project") { auto v = need("--project"); if (!v) return 2; a.project = v; continue; }
-    if (k == "--bind")  { auto v = need("--bind");  if (!v) return 2; continue; }
-    if (k == "--token") { auto v = need("--token"); if (!v) return 2; continue; }
     std::fprintf(stderr, "r2xsql: unknown argument: %.*s\n",
                  (int)k.size(), k.data());
     return 2;

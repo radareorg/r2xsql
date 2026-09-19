@@ -127,7 +127,7 @@ which reuses that session's core — the opposite direction.
 For normal use, **no** — measured end-to-end, a one-shot query is
 indistinguishable from `r2xsql-full` (both are dominated by radare2's analysis
 pass, which is identical). `r2xsql-full`'s speed advantage is *per query on an
-already-open session* and only adds up when a long-lived server or REPL answers
+already-open session* and only adds up when a long-lived session or REPL answers
 many queries in a row. A person or an agent asking questions will not feel it.
 
 ### The two catches with `r2xsql-full`
@@ -256,9 +256,9 @@ truncate SQL operators such as `>` or `|`. Plugin commands such as `sql.?`
 remain available through `run_command`.
 
 For HTTP MCP transport, start `r2mcp -r -H 8765` with the plugin installed.
-This is separate from any external REST interfaces, which
-remains available. The old `--mcp`, `sql.mcp`, `r2xsql_query` tool, and
-`R2XSQL_WITH_MCP` build option have been removed.
+The old embedded HTTP REST server (`--http` / `sql.http`), the `--mcp` option,
+the `sql.mcp` subcommand, the `r2xsql_query` tool, and the `R2XSQL_WITH_MCP`
+build option have all been removed — remote access now goes through r2mcp.
 
 Run the integration smoke test against your built executable and plugin:
 
@@ -285,8 +285,8 @@ directly:
 ## Skills (Claude Code / Codex)
 
 Agent skills teach Claude Code and Codex to drive `r2xsql`: query and annotate
-radare2 analysis through SQL, pick the right backend, and reach the
-server or use MCP through r2mcp. They ship in the radare2 community skills catalog,
+radare2 analysis through SQL, pick the right backend, and use MCP through
+r2mcp. They ship in the radare2 community skills catalog,
 **[`radare2-skills`](https://github.com/radareorg/radare2-skills)**, as the
 `r2xsql/` category alongside `dev/`, `r2mcp/` and `radius2/`. Install a category
 with its `make install` (or `python install.py install` for `r2xsql/`, which copies

@@ -45,8 +45,7 @@ R2_LDFLAGS=$(shell pkg-config --libs r_core)
 # --- include paths ------------------------------------------------------------
 XSQL_INC=-I$(LIBXSQL_DIR)/include \
          -I$(LIBXSQL_DIR)/external/sqlite \
-         -I$(LIBXSQL_DIR)/external/nlohmann/include \
-         -I$(LIBXSQL_DIR)/external/httplib
+         -I$(LIBXSQL_DIR)/external/nlohmann/include
 R2XSQL_INC=-I$(CWD)/src/lib/include -I$(CWD)/src/lib/src -I$(CWD)/src
 
 # --- defines ------------------------------------------------------------------
@@ -59,7 +58,7 @@ R2XSQL_INC=-I$(CWD)/src/lib/include -I$(CWD)/src/lib/src -I$(CWD)/src
 # (pattern has no '(' on purpose: an unbalanced paren inside $(shell ...) makes
 # GNU make read it as an unterminated call.)
 XSQL_VERSION = $(shell grep -m1 'libxsql VERSION' "$(LIBXSQL_DIR)/CMakeLists.txt" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
-DEFS=-DR2XSQL_HAVE_LIBR=1 -DXSQL_HAS_THINCLIENT -DXSQL_VERSION_STRING=\"$(XSQL_VERSION)\"
+DEFS=-DR2XSQL_HAVE_LIBR=1 -DXSQL_VERSION_STRING=\"$(XSQL_VERSION)\"
 SQLITE_DEFS=-DSQLITE_ENABLE_FTS5 -DSQLITE_ENABLE_RTREE -DSQLITE_ENABLE_JSON1 \
             -DSQLITE_ENABLE_COLUMN_METADATA
 

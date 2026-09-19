@@ -15,11 +15,10 @@
 //   sql.?                list sql.* subcommands
 //   sql.tables           list available tables
 //   sql.views            list available views
-
 //
 // The plugin wraps the host RCore* with libr2xsql's LibrBackend (no
 // ownership) and shares a single Session across calls so SQLite caches
-
+// stay warm across queries.
 
 #include <r2xsql/r2xsql.hpp>
 #include <r2xsql/backend_mock.hpp>
@@ -160,7 +159,6 @@ bool dispatch(RCore* core, const char* input) {
     print_help(core, help_msg_sql_views);
     return true;
   }
-
 
   if (*input == '.') {
     r_cons_printf(core->cons, "Unknown sql subcommand: sql%s\n", input);

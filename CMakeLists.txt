@@ -56,10 +56,6 @@ option(R2XSQL_BUILD_FULL      "Also build the full in-process (libr) r2xsql-full
 option(R2XSQL_ALLOW_STATIC_CRT_LIBR
        "Permit a static MSVC runtime (/MT) with the full/libr flavor — only safe when radare2 is also static-runtime" OFF)
 
-
-set(XSQL_WITH_THINCLIENT ON CACHE BOOL "" FORCE)
-
-
 # ============================================================================
 # libxsql dependency
 #   Order: existing target > sibling subdir > FetchContent

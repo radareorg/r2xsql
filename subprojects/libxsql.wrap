@@ -1,5 +1,5 @@
 # libxsql -- r2xsql's SQL core (SQLite virtual-table framework + vendored
-# sqlite3/nlohmann/httplib). It ships no meson.build of its own (CMake-native),
+# sqlite3/nlohmann). It ships no meson.build of its own (CMake-native),
 # so the packagefiles/ overlay below supplies one for the meson build path.
 #
 # In the monorepo, prefer the editable sibling checkout instead of this fetch by

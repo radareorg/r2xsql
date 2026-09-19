@@ -18,7 +18,7 @@ namespace r2xsql {
 // timeout_push/pop verbs) — it adds no tool-specific runtime knobs of its own.
 //
 // Unlike idasql, the settings are owned PER-Session (not a global singleton):
-// r2xsql sessions are independent (one per open binary / server), so each keeps
+// r2xsql sessions are independent (one per open binary), so each keeps
 // its own PRAGMA r2xsql.* state. The shared core does all the work — this thin
 // wrapper only states the timeout-stack cap explicitly and forwards accessors.
 class RuntimeSettings {
