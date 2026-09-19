@@ -73,8 +73,8 @@ void set_owner(XrefRow& r, RCore* core, ut64 addr) {
 }
 
 // Every producer takes the owning backend's mutex, the same one `Backend::cmd`
-// takes — the in-r2 plugin shares one core between its interactive, HTTP and
-// MCP callers, so a direct read must not interleave with a command. It is a
+// takes — the in-r2 plugin shares one core between its interactive and HTTP
+// callers, so a direct read must not interleave with a command. It is a
 // plain std::mutex, so a producer must NEVER call back into `Backend::cmd`:
 // that is a self-deadlock, not a slow path. If a future port needs a command
 // mid-producer, run it before taking the lock.

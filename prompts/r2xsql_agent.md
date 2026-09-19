@@ -102,9 +102,6 @@ r2xsql -s ./target.exe -i
 # HTTP server (query repeatedly with no per-query startup cost)
 r2xsql -s ./target.exe --http 8080
 # then: curl -X POST http://127.0.0.1:8080/query --data "SELECT * FROM binary"
-
-# MCP server (for an MCP client / agent)
-r2xsql -s ./target.exe --mcp 9876
 ```
 
 ### CLI options
@@ -121,8 +118,7 @@ r2xsql -s ./target.exe --mcp 9876
 | `--r2pipe`          | Force the r2pipe backend (spawn `radare2`) even in the full build |
 | `--r2-exe PATH`     | Path to the `radare2` executable for r2pipe (default: search PATH) |
 | `--http [port]`     | Start HTTP REST server (no port ⇒ random in **8100–8999**)       |
-| `--mcp [port]`      | Start MCP SSE server (no port ⇒ random in **9000–9999**)         |
-| `--bind <addr>`     | Bind address for `--http` / `--mcp` (default `127.0.0.1`)        |
+| `--bind <addr>`     | Bind address for `--http` (default `127.0.0.1`)                  |
 | `--token <tok>`     | Require a Bearer token on HTTP endpoints                         |
 | `--version`         | Print version and exit                                           |
 | `-h`, `--help`      | Print help and exit                                              |
@@ -167,7 +163,8 @@ a body that begins with `.r2cmd ` (see *Server Modes*).
 
 A one-shot `-q` pays the full open+analyze cost every invocation. For anything
 interactive or scripted with many queries, **open once as a server** and send
-queries over HTTP/MCP — the session (and its analysis) stays warm.
+queries over HTTP — the session (and its analysis) stays warm. For MCP, use
+r2mcp with the in-r2 plugin (see [MCP via r2mcp](#mcp-via-r2mcp)).
 
 ---
 
@@ -1203,7 +1200,7 @@ Sets `search.in=io.maps.x` for the duration of its own search and restores
 `io.maps` afterward, in ONE `Backend::cmd()` call — the same atomic
 set/search/restore idiom `rop_gadgets` uses, and for the same reason
 (`search.in` is session-global config that leaks past the command that set
-it, shared across concurrent interactive/HTTP/MCP callers). Does **not** use
+it, shared across concurrent interactive/HTTP callers). Does **not** use
 `Backend::cmd_noeval` — the atomic three-command chain is structurally
 incompatible with cmd_noeval's single no-eval-command dispatch, so `asm`'s
 charset allowlist (same validator as `assemble`) is what makes this safe on
@@ -2037,7 +2034,8 @@ SELECT printf('0x%x', addr) AS at, bytes FROM instructions WHERE func_addr = 0x4
 4. **Filter on integers/addresses,** not on stringified disassembly where you
    can avoid it.
 5. **Reuse via a server.** Tables rebuild per query (no persistent cache) — for
-   repeated drilling, run `--http`/`--mcp` once and query the warm session.
+   repeated drilling, run `--http` once and query the warm session, or use
+   r2mcp with the in-r2 plugin.
 6. **Materialize repeated broad scans.** If you need an unfiltered `xrefs` set
    several times in a session, snapshot it:
 
@@ -2230,28 +2228,23 @@ curl -X POST http://127.0.0.1:8080/query \
 curl -X POST http://127.0.0.1:8080/query --data '.r2cmd ?V'   # raw radare2
 ```
 
-### MCP (SSE / JSON-RPC)
-```bash
-r2xsql -s ./target.exe --mcp 9876        # or --mcp for a random port in 9000-9999
-```
-Transport: `GET /sse` (event stream) + `POST /messages` (JSON-RPC). One tool:
+### MCP via r2mcp
 
-| Field | Value                                                     |
-|-------|-----------------------------------------------------------|
-| Name  | `r2xsql_query`                                             |
-| Input | `{ "query": "<SQL string>" }` (required)                  |
-| Result| `content:[{type:"text", text:"<JSON envelope>"}]`         |
-
-The JSON envelope inside `text` is byte-identical to the HTTP `/query` response.
-A failed SQL query is reported **in-band** (`success:false`), not as a
-transport error.
+r2xsql no longer embeds an MCP server. Load `core_r2xsql` in the radare2
+session used by [r2mcp](https://github.com/radareorg/radare2-mcp), enable its
+SQL tool with `-r`, and call `open_file`, `analyze`, then `sql` with
+`{"query":"SELECT name FROM funcs LIMIT 5"}`. The tool passes SQL directly to
+the plugin, preserving operators that `run_command` would filter. Results
+are text tables, with SQL errors reported as `ERROR: ...` in the text. See the
+[r2mcp setup in the README](../README.md#mcp-access-through-r2mcp) for client
+configuration and a query example. The standalone pipe-only `r2xsql`
+executable does not provide the in-r2 plugin.
 
 ### In-r2 plugin
 After loading the plugin inside radare2 (`L core_r2xsql.dll`):
 ```text
 sql <SQL>            run one query against the host RCore
 sql.http [port]      start / sql.http-  stop / sql.http?  status
-sql.mcp  [port]      start / sql.mcp-   stop / sql.mcp?   status
 ```
 
 ---

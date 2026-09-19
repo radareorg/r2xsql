@@ -16,11 +16,10 @@
 //   sql.tables           list available tables
 //   sql.views            list available views
 //   sql.http [port]      start/stop/status the HTTP REST server
-//   sql.mcp  [port]      start/stop/status the MCP server
 //
 // The plugin wraps the host RCore* with libr2xsql's LibrBackend (no
 // ownership) and shares a single Session across calls so SQLite caches
-// stay warm. The HTTP and MCP servers run against that same shared Session.
+// stay warm. The HTTP server runs against that same shared Session.
 
 #include <r2xsql/r2xsql.hpp>
 #include <r2xsql/backend_mock.hpp>
@@ -45,10 +44,6 @@
 #include <xsql/thinclient/http_query_server.hpp>
 #endif
 
-#if R2XSQL_HAS_MCP
-#include "../common/mcp_server.hpp"
-#endif
-
 // r2xsql::make_libr_backend_from_core (declared in <r2xsql/backend.hpp>, included
 // via <r2xsql/r2xsql.hpp> above) wraps the host RCore* without taking ownership.
 
@@ -62,11 +57,6 @@ struct PluginState {
   std::unique_ptr<xsql::thinclient::http_query_server> http;
   int http_port = 0;
   std::string http_bind;
-#endif
-#if R2XSQL_HAS_MCP
-  std::unique_ptr<r2xsql::McpServer> mcp;
-  int mcp_port = 0;
-  std::string mcp_bind;
 #endif
 };
 
@@ -101,15 +91,6 @@ static RCoreHelpMessage help_msg_sql_dot = {
 #else
     "sql.http", "", "HTTP support is not available in this build",
 #endif
-#if R2XSQL_HAS_MCP
-    "MCP server (SSE/JSON-RPC, fastmcpp):", "", "",
-    "sql.mcp", " [port]", "start MCP server (default: random 9000-9999)",
-    "sql.mcp-", "", "stop MCP server",
-    "sql.mcp?", "", "show MCP server status",
-#else
-    "MCP server:", "", "",
-    "sql.mcp", "", "MCP support is not available in this build",
-#endif
     nullptr};
 
 static RCoreHelpMessage help_msg_sql_tables = {
@@ -131,25 +112,17 @@ static RCoreHelpMessage help_msg_sql_views = {
     "", "ir_v_calls, ir_v_mem_reads, ir_v_mem_writes", "",
     nullptr};
 
-void print_help(RCore* core) {
-  r_cons_cmd_help(core->cons, help_msg_sql);
+void print_help(RCore* core, RCoreHelpMessage help = help_msg_sql) {
+#if R2_ABIVERSION >= 125
+  r_cons_cmd_help(core->cons, help);
+#else
+  r_core_cmd_help(core, help);
+#endif
 }
 
-void print_dot_help(RCore* core) {
-  r_cons_cmd_help(core->cons, help_msg_sql_dot);
-}
-
-void print_tables(RCore* core) {
-  r_cons_cmd_help(core->cons, help_msg_sql_tables);
-}
-
-void print_views(RCore* core) {
-  r_cons_cmd_help(core->cons, help_msg_sql_views);
-}
-
-#if defined(XSQL_HAS_THINCLIENT) || R2XSQL_HAS_MCP
+#if defined(XSQL_HAS_THINCLIENT)
 // Run a SQL query/script against the session and serialize the canonical
-// run_script envelope used by --http and --mcp (matching the rest of the xsql
+// run_script envelope used by --http (matching the rest of the xsql
 // family). run_script gives multi-statement support and lets the thinclient's
 // ?format=text|csv|tsv re-render the result via json_to_script_result.
 std::string plugin_query_envelope(r2xsql::Session& s, const std::string& body) {
@@ -163,9 +136,7 @@ std::string plugin_query_envelope(r2xsql::Session& s, const std::string& body) {
   };
   return xsql::script_result_to_json(xsql::run_script(body, {}, std::ref(exec)));
 }
-#endif
 
-#if defined(XSQL_HAS_THINCLIENT)
 // Run a request body against the shared session: ".r2cmd <command>" forwards
 // a raw r2 command (returns {"success","output"}); anything else is SQL.
 // Locks g_state.mu so concurrent transports serialize against r2's command
@@ -190,9 +161,7 @@ std::string plugin_raw_or_sql(const std::string& body) {
     return xsql::json{{"success", false}, {"error", "unknown exception"}}.dump();
   }
 }
-#endif
 
-#if defined(XSQL_HAS_THINCLIENT)
 void handle_http_command(RCore* core, const char* tail) {
   // tail points after "http": empty, " <port>", "-", or "?"
   while (*tail == ' ' || *tail == '\t') ++tail;
@@ -282,103 +251,6 @@ void handle_http_command(RCore* core, const char* tail) {
 }
 #endif
 
-#if R2XSQL_HAS_MCP
-
-void handle_mcp_command(RCore* core, const char* tail) {
-  // tail points after "mcp": empty, " <port>", "-", or "?"
-  while (*tail == ' ' || *tail == '\t') ++tail;
-
-  if (*tail == '?') {
-    std::lock_guard<std::mutex> lock(g_state.mu);
-    if (g_state.mcp && g_state.mcp->is_running()) {
-      std::string s = r2xsql::format_mcp_status(g_state.mcp_port,
-                                               /*running=*/true,
-                                               g_state.mcp_bind);
-      r_cons_print(core->cons, s.c_str());
-    } else {
-      r_cons_println(core->cons, "r2xsql: MCP server not running.");
-    }
-    return;
-  }
-
-  if (*tail == '-') {
-    std::unique_ptr<r2xsql::McpServer> server;
-    {
-      std::lock_guard<std::mutex> lock(g_state.mu);
-      server = std::move(g_state.mcp);
-      g_state.mcp_port = 0;
-      g_state.mcp_bind.clear();
-    }
-    if (server) {
-      server->stop();
-      r_cons_println(core->cons, "r2xsql: MCP server stopped.");
-    } else {
-      r_cons_println(core->cons, "r2xsql: MCP server was not running.");
-    }
-    return;
-  }
-
-  // Start (with optional port). Refuse if already running.
-  {
-    std::lock_guard<std::mutex> lock(g_state.mu);
-    if (g_state.mcp && g_state.mcp->is_running()) {
-      r_cons_println(core->cons,
-                     "r2xsql: MCP server already running. Use `sql.mcp-` to stop it.");
-      return;
-    }
-  }
-
-  int port = 0;
-  if (*tail) {
-    char* endp = nullptr;
-    long v = std::strtol(tail, &endp, 10);
-    if (endp != tail && v >= 0 && v <= 65535) port = static_cast<int>(v);
-  }
-
-  ensure_session(core);
-
-  auto server = std::make_unique<r2xsql::McpServer>();
-  // use_queue=false: SSE worker thread calls our query callback directly.
-  // The callback acquires g_state.mu, so MCP queries serialize against
-  // any concurrent `sql.<query>` from r2's command thread.
-  r2xsql::QueryCallback cb = [core](const std::string& sql) -> std::string {
-    std::lock_guard<std::mutex> lock(g_state.mu);
-    if (!g_state.session) {
-      return xsql::json{{"success", false},
-                        {"error", "session not initialized"}}.dump();
-    }
-    try {
-      return plugin_query_envelope(*g_state.session, sql);
-    } catch (const std::exception& e) {
-      return xsql::json{{"success", false}, {"error", e.what()}}.dump();
-    } catch (...) {
-      return xsql::json{{"success", false},
-                        {"error", "unknown exception"}}.dump();
-    }
-  };
-
-  int bound_port = server->start(port, cb, "127.0.0.1", /*use_queue=*/false);
-  if (bound_port <= 0) {
-    char buf[128];
-    std::snprintf(buf, sizeof(buf),
-                  "r2xsql: failed to start MCP server on port %d.", port);
-    r_cons_println(core->cons, buf);
-    return;
-  }
-
-  {
-    std::lock_guard<std::mutex> lock(g_state.mu);
-    g_state.mcp = std::move(server);
-    g_state.mcp_port = bound_port;
-    g_state.mcp_bind = "127.0.0.1";
-  }
-
-  std::string info = r2xsql::format_mcp_info(bound_port, "127.0.0.1");
-  r_cons_print(core->cons, info.c_str());
-}
-
-#endif  // R2XSQL_HAS_MCP
-
 std::string render_table(const xsql::Result& res) {
   std::ostringstream oss;
 
@@ -419,19 +291,19 @@ bool dispatch(RCore* core, const char* input) {
 
   // The dotted namespace is reserved for plugin subcommands, never SQL.
   if (std::strcmp(input, ".") == 0 || std::strcmp(input, ".?") == 0) {
-    print_dot_help(core);
+    print_help(core, help_msg_sql_dot);
     return true;
   }
 
   if (std::strcmp(input, ".tables") == 0 ||
       std::strcmp(input, ".tables?") == 0) {
-    print_tables(core);
+    print_help(core, help_msg_sql_tables);
     return true;
   }
 
   if (std::strcmp(input, ".views") == 0 ||
       std::strcmp(input, ".views?") == 0) {
-    print_views(core);
+    print_help(core, help_msg_sql_views);
     return true;
   }
 
@@ -451,21 +323,6 @@ bool dispatch(RCore* core, const char* input) {
     }
   }
 
-  // `sql.mcp [port]` / `sql.mcp-` / `sql.mcp?`
-  if (std::strncmp(input, ".mcp", 4) == 0) {
-    const char* rest = input + 4;
-    if (*rest == '\0' || *rest == ' ' || *rest == '\t' ||
-        *rest == '-' || *rest == '?') {
-#if R2XSQL_HAS_MCP
-      handle_mcp_command(core, rest);
-#else
-      r_cons_println(core->cons,
-                     "r2xsql: MCP support is not available in this build.");
-#endif
-      return true;
-    }
-  }
-
   if (*input == '.') {
     r_cons_printf(core->cons, "Unknown sql subcommand: sql%s\n", input);
     r_cons_println(core->cons, "See `sql.?` for available subcommands.");
@@ -476,7 +333,7 @@ bool dispatch(RCore* core, const char* input) {
 
   std::string out;
   {
-    // Serialize against the HTTP/MCP server callbacks, which run on their own
+    // Serialize against the HTTP server callbacks, which run on their own
     // threads and also touch g_state.session / SQLite under this same mutex.
     std::lock_guard<std::mutex> lock(g_state.mu);
     try {
@@ -521,16 +378,6 @@ bool plugin_fini(RCorePluginSession* /*ctx*/) {
     }
     if (http_server) http_server->stop();
   }
-#endif
-#if R2XSQL_HAS_MCP
-  std::unique_ptr<r2xsql::McpServer> server;
-  {
-    std::lock_guard<std::mutex> lock(g_state.mu);
-    server = std::move(g_state.mcp);
-    g_state.mcp_port = 0;
-    g_state.mcp_bind.clear();
-  }
-  if (server) server->stop();
 #endif
   std::lock_guard<std::mutex> lock(g_state.mu);
   g_state.session.reset();

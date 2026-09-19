@@ -54,7 +54,7 @@
 // interleave) -- the identical atomic set/search/restore idiom
 // `rop_gadgets` already established for the same reason: `search.in` is
 // session-global config that leaks past the command that set it, and this
-// project's r2 core is shared across concurrent interactive/HTTP/MCP
+// project's r2 core is shared across concurrent interactive/HTTP
 // callers, so leaving it mutated (or trusting whatever a PRIOR caller left
 // it as) would make this table's results depend on unrelated session
 // history.

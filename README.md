@@ -71,7 +71,7 @@ unless you ask for more, and it does everything the SQL surface offers. If you
 are reading this and unsure — this is your answer. Stop here.
 
 `r2xsql-full` is an **optional second binary** you opt into with
-`-DR2XSQL_BUILD_FULL=ON`. Same SQL, same CLI, same servers — the *only* reasons
+`-DR2XSQL_BUILD_FULL=ON`. Same SQL, same CLI, same HTTP server — the *only* reasons
 to build it are:
 
 1. you want to run SQL **inside a live radare2 session** (it ships the in-r2
@@ -180,7 +180,7 @@ detects the situation and adapts.
 
 ### Building the in-r2 plugin the radare2 way (Makefile / meson)
 
-CMake above is the full build (both CLI flavors, MCP, tests, Windows). If you
+CMake above is the full build (both CLI flavors and Windows support). If you
 only want the in-r2 plugin — the `core_r2xsql` module that adds the `sql`
 command inside radare2 — there is also a radare2-native build that needs no
 CMake, matching how radare2 plugins are usually built (plugin paths from
@@ -203,12 +203,73 @@ meson install -C build-meson                 # into R2_LIBR_PLUGINS
 meson setup build-meson -Dr2_user_plugins=true   # ... or the per-user dir
 ```
 
-Both build the same plugin: the `sql` command plus the always-on HTTP REST
-server (`sql.http`). They do **not** include the MCP server (`sql.mcp`), which
-needs the extra `fastmcpp` dependency — use the CMake build for MCP. Both
+Both build the same plugin: the `sql` command plus the HTTP REST server
+started with `sql.http`. All builds use
+[`r2mcp`](https://github.com/radareorg/radare2-mcp) for MCP access to the
+plugin's `sql` command; r2xsql no longer embeds an MCP server. Both
 consume [`libxsql`](https://github.com/0xeb/libxsql): the Makefile uses a
 sibling `../libxsql` checkout (else clones it), and meson pulls it as a
 subproject. A current libxsql is required (same as CMake's `FetchContent`).
+
+## MCP access through r2mcp
+
+MCP is provided by [r2mcp](https://github.com/radareorg/radare2-mcp), using
+`core_r2xsql` in its radare2 session. Build/install the plugin as above against
+the **same radare2 installation** used to build r2mcp. The standalone pipe-only
+`r2xsql` executable is not an MCP server.
+
+Use an r2mcp build containing
+[the SQL/startup-command integration](https://github.com/radareorg/radare2-mcp/pull/78).
+For an installed plugin, configure your MCP client with:
+
+```json
+{
+  "mcpServers": {
+    "radare2": {
+      "command": "r2pm",
+      "args": ["-r", "r2mcp", "-r"]
+    }
+  }
+}
+```
+
+The first `-r` asks r2pm to run its installed binary; the final `-r` enables
+r2mcp's command and SQL tools. You can also use `"command": "r2mcp"` with
+`"args": ["-r"]` when the executable is on `PATH`. The `sql` tool allows writes
+to analysis data and is excluded from r2mcp's read-only mode.
+
+For an uninstalled plugin, add `"-c", "L /absolute/path/core_r2xsql.so"` to
+r2mcp's arguments (use the actual `.so`, `.dylib`, or `.dll` filename). Do not
+use `-n` when relying on automatic loading of an installed plugin.
+
+After connecting, call the following tools in order:
+
+| Tool | Arguments |
+|---|---|
+| `open_file` | `{"file_path":"/absolute/path/target"}` |
+| `analyze` | `{"level":0}` |
+| `sql` | `{"query":"SELECT name, size FROM funcs WHERE size > 100 ORDER BY size DESC LIMIT 10"}` |
+
+`sql` accepts one statement and returns the plugin's text table in MCP
+`content[].text`; SQL errors appear as `ERROR: ...` in that text. Use this
+tool for queries: `run_command` applies r2 command filtering, which can
+truncate SQL operators such as `>` or `|`. Plugin commands such as `sql.?`
+remain available through `run_command`.
+
+For HTTP MCP transport, start `r2mcp -r -H 8765` with the plugin installed.
+This is separate from r2xsql's SQL REST server (`--http` / `sql.http`), which
+remains available. The old `--mcp`, `sql.mcp`, `r2xsql_query` tool, and
+`R2XSQL_WITH_MCP` build option have been removed.
+
+Run the integration smoke test against your built executable and plugin:
+
+```bash
+python3 tests/mcp_smoke.py /path/to/r2mcp /path/to/core_r2xsql.so
+```
+
+It compiles a temporary fixture, loads the plugin through r2mcp, and checks
+SQL reads, comment writes/deletes, literal text, operators, and command help.
+It needs Python 3 and a C compiler, with no Python MCP package required.
 
 ## Backends (internal detail)
 
@@ -225,8 +286,8 @@ directly:
 ## Skills (Claude Code / Codex)
 
 Agent skills teach Claude Code and Codex to drive `r2xsql`: query and annotate
-radare2 analysis through SQL, pick the right backend, and reach the HTTP/MCP
-servers. They ship in the radare2 community skills catalog,
+radare2 analysis through SQL, pick the right backend, and reach the HTTP
+server or use MCP through r2mcp. They ship in the radare2 community skills catalog,
 **[`radare2-skills`](https://github.com/radareorg/radare2-skills)**, as the
 `r2xsql/` category alongside `dev/`, `r2mcp/` and `radius2/`. Install a category
 with its `make install` (or `python install.py install` for `r2xsql/`, which copies

@@ -16,12 +16,6 @@
 function(r2xsql_configure_cli tgt)
   target_link_libraries(${tgt} PRIVATE r2xsql::r2xsql)
   target_include_directories(${tgt} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
-  if(R2XSQL_WITH_MCP)
-    target_sources(${tgt} PRIVATE
-      ${CMAKE_CURRENT_SOURCE_DIR}/../common/mcp_server.cpp)
-    target_link_libraries(${tgt} PRIVATE fastmcpp_core)
-    target_compile_definitions(${tgt} PRIVATE R2XSQL_HAS_MCP=1)
-  endif()
   if(WIN32)
     target_compile_definitions(${tgt} PRIVATE
       WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
