@@ -27,7 +27,7 @@ def check(r2mcp: Path, plugin: Path, fixture: Path) -> None:
         ("sql", {"query": "DELETE FROM comments WHERE addr = 0"}),
         ("sql", {"query": "SELECT count(*) AS n FROM comments WHERE addr = 0"}),
         ("run_command", {"command": "sql.?"}),
-        ("run_command", {"command": "sql.mcp?"}),
+
     ]
     for ident, (name, arguments) in enumerate(calls, 2):
         requests.append({"jsonrpc": "2.0", "id": ident, "method": "tools/call",
@@ -53,8 +53,7 @@ def check(r2mcp: Path, plugin: Path, fixture: Path) -> None:
     assert text(5) == "comparison\tliteral\n1\ta|b;?e INJECTED\n(1 rows)\n", text(5)
     assert text(7) == "text\nvia r2mcp\n(1 rows)\n", text(7)
     assert text(9) == "n\n0\n(1 rows)\n", text(9)
-    assert "sql.http" in text(10) and "sql.mcp" not in text(10), text(10)
-    assert "Unknown sql subcommand: sql.mcp?" in text(11), text(11)
+
 
 
 if __name__ == "__main__":

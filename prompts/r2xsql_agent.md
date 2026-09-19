@@ -99,9 +99,7 @@ r2xsql -s ./target.exe -f ./audit.sql
 # interactive REPL
 r2xsql -s ./target.exe -i
 
-# HTTP server (query repeatedly with no per-query startup cost)
-r2xsql -s ./target.exe --http 8080
-# then: curl -X POST http://127.0.0.1:8080/query --data "SELECT * FROM binary"
+
 ```
 
 ### CLI options
@@ -117,9 +115,7 @@ r2xsql -s ./target.exe --http 8080
 | `--project NAME`    | radare2 project name; reuses cached analysis, saves on exit if `-w` |
 | `--r2pipe`          | Force the r2pipe backend (spawn `radare2`) even in the full build |
 | `--r2-exe PATH`     | Path to the `radare2` executable for r2pipe (default: search PATH) |
-| `--http [port]`     | Start HTTP REST server (no port ⇒ random in **8100–8999**)       |
-| `--bind <addr>`     | Bind address for `--http` (default `127.0.0.1`)                  |
-| `--token <tok>`     | Require a Bearer token on HTTP endpoints                         |
+
 | `--version`         | Print version and exit                                           |
 | `-h`, `--help`      | Print help and exit                                              |
 
@@ -156,15 +152,14 @@ sql> .pdf @ entry0          -- raw radare2: disassemble the entry function
 sql> .quit
 ```
 
-The same `.`-prefix works with `-q` (`r2xsql -s a.bin -q ".ij"`). Over HTTP, use
-a body that begins with `.r2cmd ` (see *Server Modes*).
+The same `.`-prefix works with `-q` (`r2xsql -s a.bin -q ".ij"`).
 
 ### Performance strategy
 
 A one-shot `-q` pays the full open+analyze cost every invocation. For anything
-interactive or scripted with many queries, **open once as a server** and send
-queries over HTTP — the session (and its analysis) stays warm. For MCP, use
-r2mcp with the in-r2 plugin (see [MCP via r2mcp](#mcp-via-r2mcp)).
+interactive or scripted with many queries, use a long-lived session (e.g. via
+the in-r2 plugin or `r2xsql-full`) so the session (and its analysis) stays warm.
+For MCP, use r2mcp with the in-r2 plugin (see [MCP via r2mcp](#mcp-via-r2mcp)).
 
 ---
 

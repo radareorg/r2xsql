@@ -51,7 +51,7 @@ R2XSQL_INC=-I$(CWD)/src/lib/include -I$(CWD)/src/lib/src -I$(CWD)/src
 
 # --- defines ------------------------------------------------------------------
 # R2XSQL_HAVE_LIBR=1  -> compile the in-process libr backend (real, not stub).
-# XSQL_HAS_THINCLIENT -> libxsql's httplib path (header-only), matches CMake FORCE.
+
 # XSQL_VERSION_STRING -> libxsql's --version string. Derived from libxsql's own
 # CMakeLists at build time so it always follows whatever libxsql main is at —
 # no pinned value here (r2xsql tracks libxsql main). Override with

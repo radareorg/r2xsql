@@ -198,7 +198,7 @@ void print_statement_result(const xsql::ScriptStatementResult& r) {
 // Run every ';'-terminated statement in `sql`, not just the first. A single
 // Session::query() call executes exactly one prepared statement and silently
 // drops the rest of a multi-statement blob, so this goes through
-// xsql::run_script — the same multi-statement orchestrator the HTTP path uses
+// xsql::run_script — the multi-statement orchestrator used for batch queries
 // via query_to_envelope() below — with an executor that adapts
 // r2xsql::Session::query() to the ScriptStatementResult it expects.
 // A leading raw r2 command (".<cmd>") is still special-cased first: it is not
@@ -223,7 +223,7 @@ int run_sql(r2xsql::Session& s, const std::string& sql) {
   }
 
   // Multiple statements: print each one's result set distinctly (matching the
-  // HTTP path's per-statement envelope), separated by a `-- statement i/N`
+  // per-statement envelope), separated by a `-- statement i/N`
   // marker. A single statement renders exactly as before (no marker), so
   // existing single-statement callers see byte-identical output.
   const bool multi = sr.results.size() > 1;

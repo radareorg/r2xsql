@@ -33,7 +33,7 @@
 // Every search here runs as ONE `Backend::cmd()`/`cmd_json()` call that sets
 // the scope, searches, and puts the scope back — never as separate calls
 // with anything else in between, since the in-process plugin shares one
-// core across its interactive/HTTP callers and a leaked scope would
+// core across its interactive/remote callers and a leaked scope would
 // corrupt a concurrent caller's search. The scope is always restored to
 // radare2's own documented default (`io.maps`) rather than a value read back
 // in a separate round trip first — the same "restore to the neutral
