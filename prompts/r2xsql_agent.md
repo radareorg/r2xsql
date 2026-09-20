@@ -158,7 +158,7 @@ The same `.`-prefix works with `-q` (`r2xsql -s a.bin -q ".ij"`).
 A one-shot `-q` pays the full open+analyze cost every invocation. For anything
 interactive or scripted with many queries, use a long-lived session (e.g. via
 the in-r2 plugin or `r2xsql-full`) so the session (and its analysis) stays warm.
-For MCP, use r2mcp with the in-r2 plugin (see [MCP via r2mcp](#mcp-via-r2mcp)).
+
 
 ---
 
@@ -2028,7 +2028,7 @@ SELECT printf('0x%x', addr) AS at, bytes FROM instructions WHERE func_addr = 0x4
 4. **Filter on integers/addresses,** not on stringified disassembly where you
    can avoid it.
 5. **Reuse a live session.** Tables rebuild per query (no persistent cache) — for
-   repeated drilling, keep the session warm with the `-i` REPL or r2mcp with the
+   repeated drilling, keep the session warm with the `-i` REPL or the in-r2 plugin with the
    in-r2 plugin.
 6. **Materialize repeated broad scans.** If you need an unfiltered `xrefs` set
    several times in a session, snapshot it:
@@ -2189,24 +2189,6 @@ parsing, no pushdown. **You** parse the output.
 
 ---
 
-## Server Modes
-
-The embedded HTTP REST server (`--http` / `sql.http`) has been **removed**. For
-repeated queries against a warm session, use the `-i` REPL or the in-r2 plugin;
-for remote/agent access, use **r2mcp** (which also offers its own HTTP MCP
-transport, `r2mcp -r -H <port>`).
-
-### MCP via r2mcp
-
-r2xsql no longer embeds an MCP server. Load `core_r2xsql` in the radare2
-session used by [r2mcp](https://github.com/radareorg/radare2-mcp), enable its
-SQL tool with `-r`, and call `open_file`, `analyze`, then `sql` with
-`{"query":"SELECT name FROM funcs LIMIT 5"}`. The tool passes SQL directly to
-the plugin, preserving operators that `run_command` would filter. Results
-are text tables, with SQL errors reported as `ERROR: ...` in the text. See the
-[r2mcp setup in the README](../README.md#mcp-access-through-r2mcp) for client
-configuration and a query example. The standalone pipe-only `r2xsql`
-executable does not provide the in-r2 plugin.
 
 ### In-r2 plugin
 After loading the plugin inside radare2 (`L core_r2xsql.dll`):
