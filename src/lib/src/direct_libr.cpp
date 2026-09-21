@@ -780,16 +780,45 @@ class LibrApi : public Api {
     merge_text(current.name, incoming.name);
   }
 
-  // Mirrors `tables_exports.cpp`'s cache_builder exactly: `r_bin_get_entries`
-  // (RBinAddr, `R_BIN_ENTRY_TYPE_PROGRAM` only -- the same filter `iej`'s
-  // handler uses) merged with `r_bin_get_symbols_vec` filtered by
-  // `its_an_export` (`!is_imported && bind == "GLOBAL"`, reproduced rather
-  // than called since the real helper is `static` in radare2). `iej` never
-  // emits name/size/bind (only `type`, when non-empty) -- reproduced by
-  // leaving those fields at their defaults on the entry-point pass.
-  // `entries.name` is the ORIGINAL name (`r_bin_name_tostring2(.., 'o')`),
-  // NOT the demangled one -- that lives under a "demname" key this table
-  // never reads.
+  void io_maps_scan(std::vector<IoMapRow>& out) override {
+    std::lock_guard lock(mu_);
+    if (!core_ || !core_->io) return;
+    RIOBank* bank = r_io_bank_get(core_->io, core_->io->bank);
+    if (!bank || !bank->maprefs) return;
+    for (RListIter* it = bank->maprefs->tail; it; it = it->p) {
+      auto* ref = static_cast<RIOMapRef*>(it->data);
+      RIOMap* map = r_io_map_get_by_ref(core_->io, ref);
+      if (!map) continue;
+      out.push_back({static_cast<int64_t>(r_io_map_begin(map)),
+          static_cast<int64_t>(r_io_map_end(map)), static_cast<int64_t>(map->delta),
+          map->id, map->fd, r_str_rwx_i(map->perm & R_PERM_RWX),
+          map->name ? map->name : ""});
+    }
+  }
+
+  void patches_scan(std::vector<PatchRow>& out) override {
+    std::lock_guard lock(mu_);
+    if (!core_ || !core_->io) return;
+    auto* layer = static_cast<RIOCacheLayer*>(r_list_last(core_->io->cache.layers));
+    if (!layer || !layer->vec) return;
+    RIOCacheItem** it;
+    R_VEC_FOREACH(layer->vec, it) {
+      RIOCacheItem* item = *it;
+      PatchRow r;
+      r.addr = r_itv_begin(item->itv);
+      r.size = r_itv_size(item->itv);
+      char* original = r_hex_bin2strdup(item->odata, r.size);
+      char* patched = r_hex_bin2strdup(item->data, r.size);
+      r.original_bytes = original ? original : "";
+      r.patched_bytes = patched ? patched : "";
+      free(original);
+      free(patched);
+      r.committed = item->written;
+      out.push_back(std::move(r));
+    }
+    if (!out.empty()) out.back().is_stack_top = true;
+  }
+
   void symbols_scan(std::vector<SymbolRow>& out) override {
     std::lock_guard lock(mu_);
     if (!core_ || !core_->bin) return;
@@ -822,6 +851,16 @@ class LibrApi : public Api {
     }
   }
 
+  // Mirrors `tables_exports.cpp`'s cache_builder exactly: `r_bin_get_entries`
+  // (RBinAddr, `R_BIN_ENTRY_TYPE_PROGRAM` only -- the same filter `iej`'s
+  // handler uses) merged with `r_bin_get_symbols_vec` filtered by
+  // `its_an_export` (`!is_imported && bind == "GLOBAL"`, reproduced rather
+  // than called since the real helper is `static` in radare2). `iej` never
+  // emits name/size/bind (only `type`, when non-empty) -- reproduced by
+  // leaving those fields at their defaults on the entry-point pass.
+  // `entries.name` is the ORIGINAL name (`r_bin_name_tostring2(.., 'o')`),
+  // NOT the demangled one -- that lives under a "demname" key this table
+  // never reads.
   void entries_scan(std::vector<EntryRow>& out) override {
     std::lock_guard lock(mu_);
     if (!core_ || !core_->bin) return;
