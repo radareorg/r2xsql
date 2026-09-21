@@ -26,7 +26,7 @@ target_include_directories(core_r2xsql PRIVATE
 )
 
 # core (backend-neutral) + the libr backend object lib (brings backend_libr +
-# Radare2::libr). Built only under R2XSQL_FULL_ENABLED.
+# Radare2::libr).
 target_link_libraries(core_r2xsql PRIVATE r2xsql::r2xsql r2xsql_libr Radare2::libr)
 target_compile_features(core_r2xsql PRIVATE cxx_std_20)
 
