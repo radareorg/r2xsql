@@ -1,0 +1,27 @@
+NAME=native types preserve arrays, unions, enums and multiword names
+FILE=malloc://64
+ARGS=-e log.level=0 -i build/load.r2 -a x86 -b 64
+CMDS=<<CMDS
+"sql,:quiet SELECT count(*)=1 FROM types WHERE name='unsigned int' AND size=32"
+"td struct NativeArrays { int a[3]; char b; };"
+"td union NativeUnion { int a[2]; char b; };"
+"td enum NativeEnum { First=1, Negative=-3, Last=8 };"
+tk enum.NativeEnum.Negative=0xfffffffffffffffd
+"sql,:quiet SELECT count(*)=1 FROM types WHERE name='unsigned int' AND size=32"
+"sql,:quiet SELECT count(*)=1 FROM types_members WHERE type_name='NativeArrays' AND member_name='a' AND offset=0 AND size=12 AND array_size=3"
+"sql,:quiet SELECT count(*)=1 FROM types_members WHERE type_name='NativeArrays' AND member_name='b' AND offset=12 AND size=1"
+"sql,:quiet SELECT count(*)=2 FROM types_members WHERE type_name='NativeUnion' AND offset=0"
+"sql,:quiet SELECT count(*)=1 FROM types_members WHERE type_name='NativeEnum' AND member_name='Negative' AND value=-3"
+"sql,:quiet SELECT count(*)=0 FROM types_members WHERE type_name='MissingNative'"
+CMDS
+EXPECT=<<EXPECTED
+1
+1
+1
+1
+1
+1
+1
+EXPECTED
+EXPECT_ERR=
+RUN

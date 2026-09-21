@@ -460,12 +460,33 @@ struct ProjectRow {
   std::string name;
 };
 
+struct TypeRow {
+  int64_t     ordinal = 0;
+  std::string name;
+  std::string kind;
+  int64_t     size = 0;
+  std::string format;
+};
+
+struct MemberRow {
+  std::string type_name;
+  std::string parent_kind;
+  std::string member_name;
+  std::string member_type;
+  int64_t     offset = 0;
+  int64_t     size = 0;
+  int64_t     array_size = 1;
+  int64_t     value = 0;
+};
+
 // The C-API row producers, one method per command shape a ported table has.
 // Implemented only by libr; see `Backend::direct()`, which returns nullptr on
 // every backend that has no in-process radare2.
 class Api {
  public:
   virtual ~Api() = default;
+  virtual void type_members_scan(std::vector<MemberRow>& out) = 0;
+  virtual void types_scan(std::vector<TypeRow>& out) = 0;
   virtual void projects_scan(std::vector<ProjectRow> &out) = 0;
   virtual void libs_scan(std::vector<LibRow> &out) = 0;
   virtual void class_methods_scan(std::vector<ClassMethodRow> &out) = 0;

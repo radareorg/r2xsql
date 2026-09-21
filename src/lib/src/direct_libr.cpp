@@ -273,6 +273,122 @@ class LibrApi : public Api {
     free(path);
   }
 
+  std::map<std::string, std::string> type_names() {
+    // Releases with lazy type loading need to refresh the target database
+    // before a direct Sdb walk. This is a no-op once the target is loaded.
+    r_anal_types_reload(core_->anal, nullptr, nullptr, nullptr);
+    std::map<std::string, std::string> names;
+    sdb_foreach(core_->anal->sdb_types, [](void* user, const char* key, const char* value) {
+      if (strchr(key, '.')) return true;
+      for (const char* kind : {"atomic", "type", "struct", "union", "enum", "typedef", "func"}) {
+        if (!strcmp(value, kind)) {
+          static_cast<std::map<std::string, std::string>*>(user)->emplace(key, kind);
+          break;
+        }
+      }
+      return true;
+    }, &names);
+    return names;
+  }
+
+  void type_members(const std::string& name, const std::string& kind,
+                    std::vector<MemberRow>& out) {
+    Sdb* db = core_->anal->sdb_types;
+    if (kind == "enum") {
+      RList* members = r_type_get_enum(db, name.c_str());
+      for_each_rlist<RTypeEnum>(members, [&](RTypeEnum* member) {
+        MemberRow r;
+        r.type_name = name;
+        r.parent_kind = kind;
+        r.member_name = member->name ? member->name : "";
+        r.array_size = 0;
+        r.value = r_num_math(nullptr, member->val);
+        out.push_back(std::move(r));
+      });
+      r_list_free(members);
+      return;
+    }
+    if (kind != "struct" && kind != "union") return;
+    const std::string key = kind + "." + name;
+    char* members = sdb_get(db, key.c_str(), nullptr);
+    if (!members) return;
+    int64_t offset = 0;
+    const int count = r_str_split(members, ',');
+    for (int i = 0; i < count; i++) {
+      const char* member = r_str_word_get0(members, i);
+      if (!member || !*member) continue;
+      int array_size = 1;
+      char* type = r_type_get_member(db, (key + "." + member).c_str(), nullptr, &array_size);
+      if (!type) continue;
+      MemberRow r;
+      r.type_name = name;
+      r.parent_kind = kind;
+      r.member_name = member;
+      r.member_type = type;
+      r.array_size = array_size > 0 ? array_size : 1;
+      r.size = std::max<ut64>(1, r_anal_type_bitsize(core_->anal, type) / 8) * r.array_size;
+      r.offset = offset;
+      if (kind == "struct") offset += r.size;
+      out.push_back(std::move(r));
+      free(type);
+    }
+    free(members);
+  }
+
+  void types_scan(std::vector<TypeRow>& out) override {
+    std::lock_guard lock(mu_);
+    if (!core_ || !core_->anal) return;
+    Sdb* db = core_->anal->sdb_types;
+    for (const auto& [name, kind] : type_names()) {
+      TypeRow r;
+      r.ordinal = out.size();
+      r.name = name;
+      r.kind = kind;
+      r.size = -1;
+      char* format = nullptr;
+      if (kind == "type") {
+        const char* size = sdb_const_get(db, ("type." + name + ".size").c_str(), nullptr);
+        r.size = size ? atoi(size) : -1;
+        format = sdb_get(db, ("type." + name).c_str(), nullptr);
+      } else if (kind == "struct" || kind == "union") {
+        format = r_type_format(db, name.c_str());
+        if (format) {
+          std::vector<MemberRow> members;
+          type_members(name, kind, members);
+          r.size = 0;
+          for (const auto& member : members) {
+            const int64_t size = member.size * member.array_size;
+            if (kind == "struct") r.size += size;
+            else r.size = std::max(r.size, size);
+          }
+        }
+      }
+      if (format) {
+        r_str_trim(format);
+        r.format = format;
+        free(format);
+      }
+      out.push_back(std::move(r));
+    }
+  }
+
+  void type_members_scan(std::vector<MemberRow>& out) override {
+    std::lock_guard lock(mu_);
+    if (!core_ || !core_->anal) return;
+    for (const auto& [name, kind] : type_names()) {
+      if (kind == "struct" || kind == "union") {
+        char* format = r_type_format(core_->anal->sdb_types, name.c_str());
+        if (!format) continue;
+        free(format);
+      }
+      type_members(name, kind, out);
+    }
+    std::sort(out.begin(), out.end(), [](const MemberRow& a, const MemberRow& b) {
+      if (a.type_name != b.type_name) return a.type_name < b.type_name;
+      return a.offset < b.offset;
+    });
+  }
+
   // Mirrors the command path's `aflj` + `afxj @ <fn>` per function.
   void xrefs_scan(std::vector<XrefRow>& out) override {
     std::lock_guard lock(mu_);

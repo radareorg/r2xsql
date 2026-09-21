@@ -251,18 +251,16 @@ std::string base64_encode(std::string_view s) {
 std::unordered_map<std::string, std::string> parse_tk_dump(std::string_view tk) {
   std::unordered_map<std::string, std::string> out;
   size_t pos = 0;
-  // Records may be separated by '\n', "\r\n" (r2pipe on Windows), or ' '
-  // (single-shot r2 -c 'tk*' joins records with spaces). Treat all three as
-  // record separators. We also strip trailing CR for safety.
-  auto is_sep = [](char c) { return c == '\n' || c == ' '; };
+  // tk* emits one key=value record per line; type names can contain spaces.
+  const bool multiline = tk.find('\n') != std::string_view::npos;
+  auto is_sep = [multiline](char c) { return c == '\n' || (!multiline && c == ' '); };
   while (pos < tk.size()) {
     size_t end = pos;
     while (end < tk.size() && !is_sep(tk[end])) ++end;
     std::string_view rec(tk.data() + pos, end - pos);
     pos = end + 1;
 
-    // Strip leading sdb special markers (e.g. '*' on the very first key).
-    while (!rec.empty() && (rec.front() == '*' || rec.front() == '\r')) {
+    while (!rec.empty() && rec.front() == '\r') {
       rec.remove_prefix(1);
     }
     while (!rec.empty() && (rec.back() == '\r')) {
