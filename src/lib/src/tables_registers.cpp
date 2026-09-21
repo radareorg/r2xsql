@@ -94,6 +94,7 @@ struct RegisterRow {
 
 void register_registers_table(Session& s) {
   auto def = xsql::cached_table<RegisterRow>("registers")
+    .no_shared_cache()
     .estimate_rows([]() -> size_t { return 160; })
     .cache_builder([be = s.backend_ptr()](std::vector<RegisterRow>& rows) {
       const std::string arch = table_utils::trim_ascii(be->cmd("e asm.arch"));

@@ -59,6 +59,7 @@ struct LibRow {
 
 void register_libs_table(Session& s) {
   auto def = xsql::cached_table<LibRow>("libs")
+    .no_shared_cache()
     .estimate_rows([]() -> size_t { return 16; })
     .cache_builder([be = s.backend_ptr()](std::vector<LibRow>& rows) {
       auto arr = be->cmd_json("ilj");
