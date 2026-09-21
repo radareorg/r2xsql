@@ -479,12 +479,34 @@ struct MemberRow {
   int64_t     value = 0;
 };
 
+struct BinaryRow {
+  std::string key;
+  std::string value;
+  std::string type;
+};
+
+struct RelocRow {
+  int64_t                     addr  = 0;
+  int64_t                     paddr = 0;
+  std::string                 type;
+  int64_t                     ntype = 0;
+  std::optional<std::string>  name;
+  std::optional<std::string>  demname;
+  std::optional<int64_t>      sym_vaddr;
+  bool                        is_ifunc = false;
+};
+
 // The C-API row producers, one method per command shape a ported table has.
 // Implemented only by libr; see `Backend::direct()`, which returns nullptr on
 // every backend that has no in-process radare2.
 class Api {
  public:
   virtual ~Api() = default;
+  virtual void binary_info(std::vector<BinaryRow>& out) = 0;
+  virtual std::string file_path() = 0;
+  virtual std::string engine_version() = 0;
+  virtual bool entry_address(int64_t& out) = 0;
+  virtual void relocs_scan(std::vector<RelocRow>& out) = 0;
   virtual void type_members_scan(std::vector<MemberRow>& out) = 0;
   virtual void types_scan(std::vector<TypeRow>& out) = 0;
   virtual void projects_scan(std::vector<ProjectRow> &out) = 0;
