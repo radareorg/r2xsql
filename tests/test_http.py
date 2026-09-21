@@ -1,5 +1,6 @@
 """Exercise the plugin through radare2's own HTTP command endpoint."""
 
+import json
 import socket
 import subprocess
 import time
@@ -62,6 +63,10 @@ def test_r2_http(r2_bin, r2xsql_plugin, fixture_binary, tmp_path, post):
             assert "sql.http" not in command("sql.?")
             for removed in ("sql.http", "sql.http?", "sql.http-"):
                 assert f"Unknown sql subcommand: {removed}" in command(removed)
+            result = json.loads(command('"sqlj SELECT NULL AS missing, \'\' AS empty; SELECT 7 > 3 AS n"'))
+            assert result["success"] and result["statement_count"] == 2
+            assert result["results"][0]["rows"] == [[None, ""]]
+            assert result["results"][1]["rows"] == [["1"]]
             command("=h--", use_post=False)
             assert proc.wait(timeout=5) == 0, log_path.read_text()
         finally:
