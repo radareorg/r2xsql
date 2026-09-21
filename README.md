@@ -142,6 +142,11 @@ many queries in a row. A person or an agent asking questions will not feel it.
 
 ## Build
 
+The CLI build fetches and statically links [replxx](https://github.com/AmokHuginnsson/replxx)
+for terminal input on Linux, macOS and Windows. In the `-i` REPL, **Ctrl+L**
+clears the screen and redraws the prompt, preserving the current query and cursor.
+Redirected input continues to use the plain line reader.
+
 Linux / macOS:
 
 ```bash

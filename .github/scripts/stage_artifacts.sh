@@ -69,6 +69,8 @@ copy_first() {
 
 rm -rf dist
 mkdir -p "dist/overlay/bin" "dist/overlay/${REL_PLUGIN}" "dist/pipe"
+cp LICENSE.replxx dist/overlay/
+cp LICENSE.replxx dist/pipe/
 
 # Both flavors come from the SAME build tree (one configure with
 # R2XSQL_BUILD_FULL=ON): r2xsql (pipe), r2xsql-full (libr CLI), core_r2xsql (plugin).

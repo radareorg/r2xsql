@@ -19,6 +19,7 @@
 
 #include <xsql/database.hpp>
 #include <xsql/query_script.hpp>
+#include <replxx.hxx>
 
 #include <cstdio>
 #include <cstdlib>
@@ -30,6 +31,12 @@
 #include <string>
 #include <string_view>
 #include <vector>
+
+#ifdef _WIN32
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
 
 namespace {
 
@@ -243,15 +250,27 @@ int run_script(r2xsql::Session& s, const std::string& path) {
 }
 
 int run_repl(r2xsql::Session& s) {
-  std::printf("r2xsql %s — interactive REPL. Type .quit to exit.\n"
+  std::printf("r2xsql %s — interactive REPL. Ctrl+L clears the screen; .quit exits.\n"
               R2XSQL_COPYRIGHT_STRING "\n"
               "Lines starting with '.' run a raw r2 command (e.g. .pdf @ entry0).\n",
               r2xsql::version());
+#ifdef _WIN32
+  const bool interactive = _isatty(_fileno(stdin)) && _isatty(_fileno(stdout));
+#else
+  const bool interactive = isatty(STDIN_FILENO) && isatty(STDOUT_FILENO);
+#endif
+  replxx::Replxx input;
   std::string line;
   for (;;) {
-    std::printf("sql> ");
-    std::fflush(stdout);
-    if (!std::getline(std::cin, line)) break;
+    if (interactive) {
+      const char* text = input.input("sql> ");
+      if (!text) break;
+      line = text;
+    } else {
+      std::printf("sql> ");
+      std::fflush(stdout);
+      if (!std::getline(std::cin, line)) break;
+    }
     if (line.empty()) continue;
     if (line == ".quit" || line == ".exit" || line == "exit") break;
     std::string raw;

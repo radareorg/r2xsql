@@ -12,9 +12,18 @@
 # pipe binary compiled with R2XSQL_HAVE_LIBR=0 needs neither backend_libr nor
 # radare2.
 
+if(NOT TARGET replxx::replxx)
+  # Static linkage keeps both CLI flavors self-contained.
+  set(BUILD_SHARED_LIBS OFF)
+  FetchContent_Declare(replxx
+    GIT_REPOSITORY https://github.com/AmokHuginnsson/replxx.git
+    GIT_TAG 2b248467112cbbc16f63fde38230fd7c7ffc55f1) # release-0.0.4
+  FetchContent_MakeAvailable(replxx)
+endif()
+
 # Shared wiring for a CLI target.
 function(r2xsql_configure_cli tgt)
-  target_link_libraries(${tgt} PRIVATE r2xsql::r2xsql)
+  target_link_libraries(${tgt} PRIVATE r2xsql::r2xsql replxx::replxx)
   target_include_directories(${tgt} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
   if(WIN32)
     target_compile_definitions(${tgt} PRIVATE
