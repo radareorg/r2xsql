@@ -38,6 +38,7 @@
 #include "tables.hpp"
 #include "direct.hpp"
 #include "json_utils.hpp"
+#include "table_utils.hpp"
 
 namespace r2xsql {
 
@@ -420,6 +421,7 @@ class GraphInFuncIterator : public xsql::RowIterator {
   bool started_ = false;
  public:
   GraphInFuncIterator(Backend* be, int64_t fa, Collect collect) {
+    if (!table_utils::func_addr_pushdown_ok(be, fa)) return;
     collect(be, fa, rows_);
   }
   bool next() override {

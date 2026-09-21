@@ -34,6 +34,7 @@
 #include "tables.hpp"
 #include "direct.hpp"
 #include "json_utils.hpp"
+#include "table_utils.hpp"
 
 namespace r2xsql {
 
@@ -179,7 +180,10 @@ class SwitchTablesInFuncIterator : public xsql::RowIterator {
   size_t i_ = 0;
   bool started_ = false;
  public:
-  SwitchTablesInFuncIterator(Backend* be, int64_t fa) : rows_(switches_for_func(be, fa)) {}
+  SwitchTablesInFuncIterator(Backend* be, int64_t fa) {
+    if (!table_utils::func_addr_pushdown_ok(be, fa)) return;
+    rows_ = switches_for_func(be, fa);
+  }
   bool next() override {
     if (!started_) started_ = true; else ++i_;
     return i_ < rows_.size();
