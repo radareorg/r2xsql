@@ -20,6 +20,7 @@
 #include <xsql/vtable.hpp>
 
 #include "tables.hpp"
+#include "direct.hpp"
 #include "json_utils.hpp"
 
 #include <algorithm>
@@ -31,16 +32,7 @@ namespace r2xsql {
 
 namespace {
 
-struct MemberRow {
-  std::string type_name;
-  std::string parent_kind;
-  std::string member_name;
-  std::string member_type;
-  int64_t     offset = 0;
-  int64_t     size = 0;
-  int64_t     array_size = 1;
-  int64_t     value = 0;
-};
+using direct::MemberRow;
 
 }  // namespace
 
@@ -49,6 +41,10 @@ void register_types_members_table(Session& s) {
     .no_shared_cache()
     .estimate_rows([]() -> size_t { return 1024; })
     .cache_builder([be = s.backend_ptr()](std::vector<MemberRow>& rows) {
+      if (auto* api = be->direct()) {
+        api->type_members_scan(rows);
+        return;
+      }
       auto kinds = json_utils::parse_tk_dump(be->cmd("tk*"));
       if (kinds.empty()) return;
 

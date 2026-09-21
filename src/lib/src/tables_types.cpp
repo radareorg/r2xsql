@@ -56,6 +56,7 @@
 #include <xsql/vtable.hpp>
 
 #include "tables.hpp"
+#include "direct.hpp"
 #include "json_utils.hpp"
 #include "table_utils.hpp"
 
@@ -68,13 +69,7 @@ namespace r2xsql {
 
 namespace {
 
-struct TypeRow {
-  int64_t     ordinal = 0;
-  std::string name;
-  std::string kind;
-  int64_t     size = 0;
-  std::string format;
-};
+using direct::TypeRow;
 
 }  // namespace
 
@@ -83,6 +78,10 @@ void register_types_table(Session& s) {
     .no_shared_cache()
     .estimate_rows([]() -> size_t { return 256; })
     .cache_builder([be = s.backend_ptr()](std::vector<TypeRow>& rows) {
+      if (auto* api = be->direct()) {
+        api->types_scan(rows);
+        return;
+      }
       auto kinds = json_utils::parse_tk_dump(be->cmd("tk*"));
       if (kinds.empty()) return;
 
