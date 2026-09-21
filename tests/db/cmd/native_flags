@@ -8,6 +8,8 @@ fs bookmarks
 f mark 1 @ 4
 fs other
 "sql,:quiet SELECT count(*) FROM bookmarks WHERE addr=4 AND name='mark'"
+"sql,:quiet SELECT count(*) FROM grep WHERE kind='flag' AND name='mark'"
+"sql,:quiet SELECT count(*) FROM grep WHERE kind='flag' AND name='other_flag'"
 fj~{[0].name}
 "sql,:quiet UPDATE bookmarks SET name='renamed' WHERE name='mark'"
 "sql,:quiet SELECT count(*) FROM flags WHERE name='renamed' AND space='bookmarks'"
@@ -17,6 +19,8 @@ fj~{[0].name}
 fj~{[0].name}
 CMDS
 EXPECT=<<EXPECTED
+1
+0
 1
 other_flag
 1

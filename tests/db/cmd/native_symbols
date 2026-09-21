@@ -1,0 +1,23 @@
+NAME=native data symbols and grep match their source tables
+FILE=build/fixture.bin
+ARGS=-e log.level=0 -i build/load.r2
+CMDS=<<CMDS
+aaa
+"sql,:quiet SELECT count(*)=1 FROM data_items WHERE name='r2xsql_marker' AND size>0 AND is_string=0 AND is_initialized=1"
+"sql,:quiet SELECT count(*)>0 FROM data_items WHERE is_string=1 AND value_repr='r2xsql_test_marker_string' AND size>length(value_repr)"
+"sql,:quiet SELECT (SELECT count(*) FROM grep WHERE kind='func')=(SELECT count(*) FROM funcs)"
+"sql,:quiet SELECT (SELECT count(*) FROM grep WHERE kind='import')=(SELECT count(*) FROM imports)"
+"sql,:quiet SELECT (SELECT count(*) FROM grep WHERE kind='section')=(SELECT count(*) FROM sections)"
+e io.va=false
+"sql,:quiet SELECT count(*)=0 FROM sections WHERE start_addr<>paddr"
+CMDS
+EXPECT=<<EXPECTED
+1
+1
+1
+1
+1
+1
+EXPECTED
+EXPECT_ERR=
+RUN

@@ -611,10 +611,11 @@ class LibrApi : public Api {
   // something (e.g. demangling) gives it a genuinely distinct one, so the
   // common case must read back "" here too, exactly as the command path's
   // `fj` does when the JSON key is absent.
-  void flags_scan(std::vector<FlagRow>& out, const char* space) override {
+  void flags_scan(std::vector<FlagRow>& out, const char* space, bool current_space) override {
     std::lock_guard lock(mu_);
     if (!core_ || !core_->flags) return;
-    RSpace* selected = space ? r_flag_space_get(core_->flags, space) : nullptr;
+    RSpace* selected = space ? r_flag_space_get(core_->flags, space) :
+        (current_space ? r_flag_space_cur(core_->flags) : nullptr);
     if (space && !selected) return;
     struct Ctx {
       std::vector<FlagRow>* out;
@@ -662,7 +663,8 @@ class LibrApi : public Api {
     const int maxstr = r_config_get_i(core_->config, "bin.str.max");
     RBinString* s;
     R_VEC_FOREACH(list, s) {
-      const ut64 vaddr = r_bin_get_vaddr(core_->bin, s->paddr, s->vaddr);
+      const ut64 vaddr = r_config_get_b(core_->config, "io.va") && s->paddr != UT64_MAX
+          ? r_bin_get_vaddr(core_->bin, s->paddr, s->vaddr) : s->paddr;
       if (!r_bin_string_filter(core_->bin, s->string, vaddr)) continue;
       if (static_cast<int>(s->length) < minstr) continue;
       if (maxstr && static_cast<int>(s->length) > maxstr) continue;
@@ -670,6 +672,7 @@ class LibrApi : public Api {
       StringRow r;
       r.addr   = static_cast<int64_t>(vaddr);
       r.length = static_cast<int64_t>(s->length);
+      r.size = static_cast<int64_t>(s->size);
       RBinSection* sec = obj ? r_bin_get_section_at(obj, s->paddr, 0) : nullptr;
       r.section = (sec && sec->name) ? sec->name : "";
       if (const char* t = r_bin_string_type(s->type)) r.type = t;
@@ -687,17 +690,19 @@ class LibrApi : public Api {
   // emitter's own `va_sect` branch exactly.
   void sections_scan(bool want_segment, std::vector<SectionRow>& out) override {
     std::lock_guard lock(mu_);
-    if (!core_ || !core_->bin) return;
+    if (!core_ || !core_->bin || !core_->bin->cur) return;
+    // `iSj`/`iSSj` select the binary's descriptor before reading sections.
+    // Preserve that selection for subsequent physical IO reads.
+    r_io_use_fd(core_->io, core_->bin->cur->fd);
     RVecRBinSection* secs = r_bin_get_sections_vec(core_->bin);
     if (!secs) return;
     const bool io_va = r_config_get_b(core_->config, "io.va");
     RBinSection* s;
     R_VEC_FOREACH(secs, s) {
       if (s->is_segment != want_segment) continue;
-      const bool rebase = io_va && (s->perm & R_PERM_R);
-      const int64_t addr = rebase
-          ? static_cast<int64_t>(r_bin_get_vaddr(core_->bin, s->paddr, s->vaddr))
-          : static_cast<int64_t>(s->vaddr);
+      const int64_t addr = io_va && !(s->perm & R_PERM_R) ? s->vaddr :
+          (io_va && s->paddr != UT64_MAX
+              ? r_bin_get_vaddr(core_->bin, s->paddr, s->vaddr) : s->paddr);
       SectionRow r;
       r.addr  = addr;
       r.vsize = static_cast<int64_t>(s->vsize);
@@ -785,6 +790,38 @@ class LibrApi : public Api {
   // `entries.name` is the ORIGINAL name (`r_bin_name_tostring2(.., 'o')`),
   // NOT the demangled one -- that lives under a "demname" key this table
   // never reads.
+  void symbols_scan(std::vector<SymbolRow>& out) override {
+    std::lock_guard lock(mu_);
+    if (!core_ || !core_->bin) return;
+    RVecRBinSymbol* symbols = r_bin_get_symbols_vec(core_->bin);
+    if (!symbols) return;
+    RBinSymbol* sym;
+    R_VEC_FOREACH(symbols, sym) {
+      const char* display_name = r_bin_name_tostring(sym->name);
+      if (!display_name) continue;
+      SymbolRow r;
+      r.addr = sym->paddr == UT64_MAX ? sym->vaddr :
+          (r_config_get_b(core_->config, "io.va")
+              ? r_bin_get_vaddr(core_->bin, sym->paddr, sym->vaddr) : sym->paddr);
+#if R2_ABIVERSION >= 136
+      r.size = sym->attr.size;
+#else
+      r.size = sym->size;
+#endif
+      r.type = sym->type ? sym->type : "";
+      r.bind = sym->bind ? sym->bind : "";
+      r.is_imported = sym->is_imported;
+      const char* name = r_bin_name_tostring2(sym->name, 'o');
+      if (!name) name = display_name;
+      if (name) {
+        char* escaped = r_str_escape_utf8(name, false, true);
+        r.name = escaped ? escaped : name;
+        free(escaped);
+      }
+      out.push_back(std::move(r));
+    }
+  }
+
   void entries_scan(std::vector<EntryRow>& out) override {
     std::lock_guard lock(mu_);
     if (!core_ || !core_->bin) return;

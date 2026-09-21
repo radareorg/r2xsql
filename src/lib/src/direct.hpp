@@ -288,6 +288,7 @@ struct StringRow {
   std::string type;
   std::string content;
   int64_t     paddr = 0;
+  int64_t     size = 0;
 };
 
 // One row of `sections` (`iSj`) or `segments` (`iSSj`) -- both commands
@@ -387,6 +388,10 @@ struct EntryRow {
   std::string type;
   std::string bind;
   std::string name;
+};
+
+struct SymbolRow : EntryRow {
+  bool is_imported = false;
 };
 
 // The C-API row producers, one method per command shape a ported table has.
@@ -490,7 +495,8 @@ class Api {
   // 17-47x on a full scan across a real binary and generated fixtures, plus
   // a real large DLL, with exact field parity -- including the pointer-
   // equality `realname` quirk -- before being ported.
-  virtual void flags_scan(std::vector<FlagRow>& out, const char* space = nullptr) = 0;
+  virtual void flags_scan(std::vector<FlagRow>& out, const char* space = nullptr,
+                          bool current_space = false) = 0;
   virtual bool flag_at(const std::string& name, const std::string& space, int64_t addr) = 0;
 
   // `strings` full scan -- the command path's `izj`. `with_content` mirrors
@@ -511,6 +517,7 @@ class Api {
   // `entries` full scan -- the command path's `iej` + `iEj`, merged by
   // address exactly as `tables_exports.cpp`'s own `merge_row` does.
   virtual void entries_scan(std::vector<EntryRow>& out) = 0;
+  virtual void symbols_scan(std::vector<SymbolRow>& out) = 0;
 
   // `comments` full scan -- the command path's `CCj`, a single full-scan
   // command (no per-function or per-address loop to collapse). Walks

@@ -23,7 +23,7 @@
 #include <xsql/vtable.hpp>
 
 #include "tables.hpp"
-#include "json_utils.hpp"
+#include "table_sources.hpp"
 
 namespace r2xsql {
 
@@ -60,21 +60,20 @@ int64_t saturated_end(int64_t start, int64_t length) {
 
 std::vector<SectionInfo> load_sections(Backend* be) {
   std::vector<SectionInfo> out;
-  auto secs = be->cmd_json("iSj");
-  if (!secs.is_array()) return out;
+  auto secs = table_sources::sections(be);
   out.reserve(secs.size());
   for (const auto& j : secs) {
     SectionInfo s;
-    s.start = json_utils::i64(j, "vaddr");
+    s.start = j.addr;
     const int64_t raw_size =
-        std::max<int64_t>(0, json_utils::i64(j, "size"));
-    int64_t virtual_size = json_utils::i64(j, "vsize");
+        std::max<int64_t>(0, j.size);
+    int64_t virtual_size = j.vsize;
     if (virtual_size <= 0) virtual_size = raw_size;
     if (virtual_size <= 0) continue;
     s.end = saturated_end(s.start, virtual_size);
     s.raw_end =
         saturated_end(s.start, std::min(raw_size, virtual_size));
-    s.name = json_utils::str(j, "name");
+    s.name = j.name;
     if (s.end > s.start) out.push_back(std::move(s));
   }
   return out;
@@ -95,59 +94,53 @@ void build_data_items(Backend* be, std::vector<DataItemRow>& rows) {
   const auto sections = load_sections(be);
 
   // (1) Non-FUNC symbols = data objects (OBJ/OBJECT on binaries with a symtab).
-  auto syms = be->cmd_json("isj");
-  if (syms.is_array()) {
-    for (auto& j : syms) {
-      const std::string type = json_utils::str(j, "type");
-      if (type == "FUNC") continue;              // code lives in funcs
-      if (json_utils::boolean(j, "is_imported", false)) continue;  // imports table
-      const int64_t addr = json_utils::i64(j, "vaddr");
-      // vaddr 0 is r2's unmapped/sentinel address; skip it. A genuine item at
-      // vaddr 0 is vanishingly rare and not worth confusing with the sentinel.
-      if (addr == 0) continue;
-      DataItemRow r;
-      r.addr = addr;
-      r.name = json_utils::str(j, "name");
-      r.has_name = !r.name.empty();
-      r.data_type = type;
-      r.has_type = !r.data_type.empty();
-      r.size = json_utils::i64(j, "size");
-      r.has_size = true;
-      if (const auto* section = section_at(sections, addr)) {
-        r.segment_name = section->name;
-        r.has_segment = !r.segment_name.empty();
-        r.is_initialized = addr < section->raw_end ? 1 : 0;
-      }
-      by_addr[addr] = std::move(r);
+  for (const auto& j : table_sources::symbols(be)) {
+    const std::string type = j.type;
+    if (type == "FUNC") continue;              // code lives in funcs
+    if (j.is_imported) continue;  // imports table
+    const int64_t addr = j.addr;
+    // vaddr 0 is r2's unmapped/sentinel address; skip it. A genuine item at
+    // vaddr 0 is vanishingly rare and not worth confusing with the sentinel.
+    if (addr == 0) continue;
+    DataItemRow r;
+    r.addr = addr;
+    r.name = j.name;
+    r.has_name = !r.name.empty();
+    r.data_type = type;
+    r.has_type = !r.data_type.empty();
+    r.size = j.size;
+    r.has_size = true;
+    if (const auto* section = section_at(sections, addr)) {
+      r.segment_name = section->name;
+      r.has_segment = !r.segment_name.empty();
+      r.is_initialized = addr < section->raw_end ? 1 : 0;
     }
+    by_addr[addr] = std::move(r);
   }
 
   // (2) Strings: value_repr + segment + is_string. Coincident addr keeps the
   // symbol's name/type but becomes a string with a value.
-  auto strs = be->cmd_json("izj");
-  if (strs.is_array()) {
-    for (auto& j : strs) {
-      const int64_t addr = json_utils::i64(j, "vaddr");
-      if (addr == 0) continue;  // r2 unmapped/sentinel address (see above)
-      auto it = by_addr.find(addr);
-      if (it == by_addr.end()) {
-        DataItemRow r;
-        r.addr = addr;
-        r.data_type = "string";
-        r.has_type = true;
-        r.size = json_utils::i64(j, "size");
-        r.has_size = true;
-        it = by_addr.emplace(addr, std::move(r)).first;
-      }
-      DataItemRow& r = it->second;
-      r.is_string = 1;
-      r.is_initialized = 1;
-      r.value_repr = json_utils::str(j, "string");
-      r.has_value = !r.value_repr.empty();
-      r.segment_name = json_utils::str(j, "section");
-      r.has_segment = !r.segment_name.empty();
-      if (!r.has_size) { r.size = json_utils::i64(j, "size"); r.has_size = true; }
+  for (const auto& j : table_sources::strings(be)) {
+    const int64_t addr = j.addr;
+    if (addr == 0) continue;  // r2 unmapped/sentinel address (see above)
+    auto it = by_addr.find(addr);
+    if (it == by_addr.end()) {
+      DataItemRow r;
+      r.addr = addr;
+      r.data_type = "string";
+      r.has_type = true;
+      r.size = j.size;
+      r.has_size = true;
+      it = by_addr.emplace(addr, std::move(r)).first;
     }
+    DataItemRow& r = it->second;
+    r.is_string = 1;
+    r.is_initialized = 1;
+    r.value_repr = j.content;
+    r.has_value = !r.value_repr.empty();
+    r.segment_name = j.section;
+    r.has_segment = !r.segment_name.empty();
+    if (!r.has_size) { r.size = j.size; r.has_size = true; }
   }
 
   rows.reserve(by_addr.size());
