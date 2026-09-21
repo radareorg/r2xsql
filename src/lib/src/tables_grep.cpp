@@ -4,8 +4,8 @@
 // This file is licensed under the Human-Origin Source License v1.0.
 // See LICENSE.
 // grep — composite view over funcs/flags/imports/exports/sections/comments.
-// Each row tags its source via `kind`; the underlying r2 JSON commands are
-// re-issued per query, so the view is always live. The `pattern` pseudo-column
+// Each row tags its source via `kind`; native records (or r2pipe command
+// results) are read per query, so the view is always live. The `pattern` pseudo-column
 // pushes a case-insensitive SQL `LIKE`-style filter down: `WHERE pattern = 'x%'`
 // matches `name`/`full_name` without materialising the full cache. An
 // unfiltered scan returns every entity flat.
@@ -23,6 +23,7 @@
 
 #include "tables.hpp"
 #include "json_utils.hpp"
+#include "table_sources.hpp"
 
 namespace r2xsql {
 
@@ -61,6 +62,30 @@ void push_array(Backend* be, std::vector<GrepRow>& rows,
 // The full entity set, shared by the flat full-scan cache and the pushdown
 // iterator so both stay in lock-step with the source commands.
 void build_grep_rows(Backend* be, std::vector<GrepRow>& rows) {
+  if (auto* api = be->direct()) {
+    auto add = [&](const char* kind, int64_t addr, const std::string& name,
+                   const std::string& parent = {}) {
+      rows.push_back({kind, name, parent.empty() ? name : parent + "!" + name,
+                     parent, addr});
+    };
+    std::vector<direct::FuncRow> funcs;
+    api->funcs_scan(false, funcs);
+    for (const auto& r : funcs) add("func", r.addr, r.name);
+    std::vector<direct::FlagRow> flags;
+    api->flags_scan(flags, nullptr, true);
+    for (const auto& r : flags) add("flag", r.addr, r.name);
+    std::vector<direct::ImportRow> imports;
+    api->imports_scan(imports);
+    for (const auto& r : imports) add("import", r.addr, r.name, r.module);
+    for (const auto& r : table_sources::symbols(be)) {
+      if (!r.is_imported && r.bind == "GLOBAL") add("export", r.addr, r.name);
+    }
+    for (const auto& r : table_sources::sections(be)) add("section", r.addr, r.name);
+    std::vector<direct::CommentRow> comments;
+    api->comments_scan(comments);
+    for (const auto& r : comments) add("comment", r.addr, r.text);
+    return;
+  }
   push_array(be, rows, "aflj",  "func",    nullptr,  "name");
   push_array(be, rows, "fj",    "flag",    nullptr,  "name");
   push_array(be, rows, "iij",   "import",  "plt",    "name", "libname");
