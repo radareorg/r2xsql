@@ -33,6 +33,7 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -413,12 +414,65 @@ struct PatchRow {
   bool        is_stack_top = false;
 };
 
+struct SyscallRow {
+  std::string name;
+  int64_t     num = 0;
+  std::string arch;
+  std::string os;
+};
+
+struct RegisterRow {
+  std::string                name;
+  std::string                type;
+  int64_t                    size   = 0;
+  int64_t                    offset = 0;
+  std::optional<std::string> role;
+  std::string                arch;
+  std::string                bits;
+};
+
+struct CallingConventionRow {
+  std::string                name;
+  std::vector<std::string>   args;
+  std::optional<std::string> ret;
+  std::vector<std::string>   rets;
+  std::optional<std::string> argn;
+};
+
+struct ClassRow {
+  std::string                name;
+  std::optional<std::string> base_name;
+  std::optional<int64_t>     vtable_addr;
+};
+
+struct ClassMethodRow {
+  std::string             class_name;
+  std::string              name;
+  int64_t                  addr = 0;
+  std::optional<int64_t>   vtable_offset;
+};
+
+struct LibRow {
+  std::string name;
+};
+
+struct ProjectRow {
+  std::string name;
+};
+
 // The C-API row producers, one method per command shape a ported table has.
 // Implemented only by libr; see `Backend::direct()`, which returns nullptr on
 // every backend that has no in-process radare2.
 class Api {
  public:
   virtual ~Api() = default;
+  virtual void projects_scan(std::vector<ProjectRow> &out) = 0;
+  virtual void libs_scan(std::vector<LibRow> &out) = 0;
+  virtual void class_methods_scan(std::vector<ClassMethodRow> &out) = 0;
+  virtual void classes_scan(std::vector<ClassRow> &out) = 0;
+  virtual void calling_conventions_scan(std::vector<CallingConventionRow> &out) = 0;
+  virtual void registers_scan(std::vector<RegisterRow> &out) = 0;
+  virtual void syscalls_scan(std::vector<SyscallRow> &out) = 0;
 
   // True only when addr is exactly a function entry. Avoids command/JSON
   // round-trips for scoped SQL pushdowns on the in-process backend.

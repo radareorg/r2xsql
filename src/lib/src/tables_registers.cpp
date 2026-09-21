@@ -3,62 +3,7 @@
 //
 // This file is licensed under the Human-Origin Source License v1.0.
 // See LICENSE.
-// registers -- a static per-(arch,bits) register PROFILE reference table,
-// backed by `arpj` (cmd_debug.inc.c, case 'j' under the shared "dr"/"ar"
-// prefix routing -- the comment there literally reads `// "drpj" .. dup from
-// "arpj"`). This is NOT `arj`'s live register VALUES: `arj` was checked
-// first and confirmed to exist, but it prints the CURRENT machine-state
-// register contents (`{"rax":0,"rbx":0,...}`), which read back as all-zero
-// on every fixture because r2xsql is a static-analysis tool -- it never runs
-// the target, so there is no live CPU state to report. Building a table on
-// top of `arj` would therefore always read as zero/garbage, not a useful
-// surface. `arpj` is the correct source instead: the register PROFILE (which
-// registers exist, their name/size/bit-offset/kind), a portable per-arch
-// fact with zero dependency on execution, the same "static reference, not
-// live occurrence" shape `syscalls`/`calling_conventions` already ship.
-//
-// Verified directly against `cmd_debug.inc.c`'s case 'j' handler, not
-// assumed:
-//
-//   pj_k(pj, "reg_info"); for (i = 0; i < R_REG_TYPE_LAST; i++)
-//     r_list_foreach(core->dbg->reg->regset[i].regs, iter, ri) { ... }
-//
-// `regset[i].regs` is the list of registers WHOSE type already IS `i` --
-// there is no "walk every type and re-list matching registers" step, so the
-// per-type re-query pattern (`r_reg_get_list(reg, t)` called once per type,
-// needing a "skip ri->type != t" dedupe) does NOT apply here.
-// Confirmed empirically too: every `name` in a real `arpj` dump is unique
-// across the whole `reg_info` array (zero duplicates on a real x86-64 PE
-// fixture). **The dedupe idiom the roadmap flagged as "a real correctness
-// detail to reimplement" turned out not to apply to this command source --
-// it was only ever needed for a per-type re-query C-API walk, not for
-// `arpj`'s single already-partitioned emission.** Documented here rather
-// than silently dropped, since the roadmap explicitly called it out as an
-// open risk.
-//
-// `role` is sourced from the SAME `arpj` payload's `alias_info` array --
-// `{"role":N,"role_str":"PC","reg":"rip"}` entries mapping a register ROLE
-// (program counter, stack pointer, frame pointer, argument slots A0-A7,
-// return R0, syscall-number SN, ...) onto the underlying register NAME.
-// A single physical register can carry more than one role on a real target
-// (verified: x86-64's `rax` is tagged both "R0" (first return-location role)
-// and "SN" (syscall-number role) at once) -- `role` joins every matching
-// role_str with a comma, the same multi-value idiom `calling_conventions`
-// already uses for `rets`/`args`, rather than picking one arbitrarily or
-// adding a junction table for a handful of rows. A register with no alias
-// role (nearly every sub-register width, e.g. `eax`/`ax`/`al`) reports NULL.
-//
-// No pushdown: the whole table is small (~130-140 rows on a real x86-64
-// target) and cheap (the profile is compiled into the arch/anal plugin as a
-// literal C string set at core-open time -- confirmed by reading the
-// handler above, which walks `core->dbg->reg`'s already-built regsets, not
-// any external file -- so, unlike `syscalls`/`calling_conventions`, this
-// table has NO data-dir dependency to work around).
-//
-// `arch`/`bits` echo the session config (`asm.arch`/`asm.bits`) onto every
-// row, the same informational idiom `syscalls` uses for `arch`/`os` --
-// this table is inherently single-target per session, so these columns
-// exist for readability/joins, not to disambiguate a cross-arch union.
+// Native reads for libr; command fallback for r2pipe and mock.
 
 #include <r2xsql/session.hpp>
 #include <r2xsql/backend.hpp>
@@ -72,6 +17,7 @@
 #include <nlohmann/json.hpp>
 
 #include "tables.hpp"
+#include "direct.hpp"
 #include "json_utils.hpp"
 #include "table_utils.hpp"
 
@@ -79,16 +25,7 @@ namespace r2xsql {
 
 namespace {
 
-struct RegisterRow {
-  std::string                name;
-  std::string                type;   // type_str: gpr | fpu | flg | seg | drx | vec128 | ...
-  int64_t                    size   = 0;   // bits
-  int64_t                    offset = 0;   // bit offset within radare2's internal
-                                            // per-type register arena -- NOT a memory address
-  std::optional<std::string> role;         // comma-joined alias role_str values, or NULL
-  std::string                arch;
-  std::string                bits;
-};
+using direct::RegisterRow;
 
 }  // namespace
 
@@ -97,6 +34,10 @@ void register_registers_table(Session& s) {
     .no_shared_cache()
     .estimate_rows([]() -> size_t { return 160; })
     .cache_builder([be = s.backend_ptr()](std::vector<RegisterRow>& rows) {
+      if (auto* api = be->direct()) {
+        api->registers_scan(rows);
+        return;
+      }
       const std::string arch = table_utils::trim_ascii(be->cmd("e asm.arch"));
       const std::string bits = table_utils::trim_ascii(be->cmd("e asm.bits"));
 

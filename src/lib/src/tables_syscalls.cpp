@@ -3,49 +3,21 @@
 //
 // This file is licensed under the Human-Origin Source License v1.0.
 // See LICENSE.
-// syscalls — a static per-(arch,bits,cpu,os) syscall name/number reference
-// table, backed by `asj` (cmd_anal.inc.c -> r_syscall_list, libr/syscall/
-// syscall.c). Confirmed via a standalone lab that this is a pure lookup
-// table with zero dependency on the binary's actual bytes: the whole SDB is
-// loaded once by `r_syscall_setup(arch, bits, cpu, os)`, keyed purely by
-// that tuple. Not a per-binary occurrence list -- for "where in this binary
-// are the syscalls", see `instructions` WHERE op_type = 'swi', which already
-// answers that with no new table.
-//
-// The command is `asj` -- NOT `aslj` (that command does not exist; `asl` is
-// the plain-text list, `asj` is its JSON form, per cmd_anal.inc.c's own help
-// text).
-//
-// No pushdown: the whole table is small (hundreds of rows) and cheap (the
-// SDB is already loaded when a session opens; `asj` is one command, no N+1).
-//
-// Deployment note (verified empirically, not assumed): the in-process
-// libr backend is subject to the project's documented data-dir
-// cliff for this table too, and it needed its OWN fix distinct from the
-// `types`/calling-convention one -- `r_syscall_setup`'s SDB loader ignores
-// `dir.prefix` (and every other core config) entirely, resolving its data
-// directory purely via `r_sys_prefix(NULL)` (exe-relative on Windows, no
-// override hook). See `backend_libr.cpp`'s `reload_syscall_db_from_prefix`
-// for the fix; this table itself is unaffected by which backend/prefix
-// resolution is in play -- it just issues `asj` and reports what comes back.
+// Native reads for libr; command fallback for r2pipe and mock.
 
 #include <r2xsql/session.hpp>
 #include <r2xsql/backend.hpp>
 #include <xsql/vtable.hpp>
 
 #include "tables.hpp"
+#include "direct.hpp"
 #include "json_utils.hpp"
 #include "table_utils.hpp"
 
 namespace r2xsql {
 
 namespace {
-struct SyscallRow {
-  std::string name;
-  int64_t     num = 0;
-  std::string arch;
-  std::string os;
-};
+using direct::SyscallRow;
 }  // namespace
 
 void register_syscalls_table(Session& s) {
@@ -53,6 +25,10 @@ void register_syscalls_table(Session& s) {
     .no_shared_cache()
     .estimate_rows([]() -> size_t { return 512; })
     .cache_builder([be = s.backend_ptr()](std::vector<SyscallRow>& rows) {
+      if (auto* api = be->direct()) {
+        api->syscalls_scan(rows);
+        return;
+      }
       // `arch`/`os` are session config (asm.arch/asm.os), the same variables
       // `r_syscall_setup` is keyed on -- read once per build, echoed onto
       // every row rather than re-queried per row (the table is already

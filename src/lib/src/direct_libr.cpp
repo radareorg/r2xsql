@@ -129,6 +129,150 @@ class LibrApi : public Api {
     return core_ && core_->anal && r_anal_cc_exist(core_->anal, name.c_str());
   }
 
+  void syscalls_scan(std::vector<SyscallRow>& out) override {
+    std::lock_guard lock(mu_);
+    if (!core_ || !core_->anal || !core_->anal->syscall) return;
+    RList* list = r_syscall_list(core_->anal->syscall);
+    const char* arch = r_config_get(core_->config, "asm.arch");
+    const char* os = r_config_get(core_->config, "asm.os");
+    for_each_rlist<RSyscallItem>(list, [&](RSyscallItem* item) {
+      out.push_back({item->name ? item->name : "", item->num,
+                     arch ? arch : "", os ? os : ""});
+    });
+    r_list_free(list);
+  }
+
+  void registers_scan(std::vector<RegisterRow>& out) override {
+    std::lock_guard lock(mu_);
+    if (!core_ || !core_->anal || !core_->anal->reg) return;
+    RReg* reg = core_->anal->reg;
+    std::map<std::string, std::string> roles;
+    for (int i = 0; i < R_REG_ALIAS_LAST; i++) {
+      const char* name = r_reg_alias_getname(reg, static_cast<RRegAlias>(i));
+      const char* role = r_reg_alias_tostring(static_cast<RRegAlias>(i));
+      if (!name || !role) continue;
+      auto& joined = roles[name];
+      if (!joined.empty()) joined += ',';
+      joined += role;
+    }
+    const char* arch = r_config_get(core_->config, "asm.arch");
+    const std::string bits = std::to_string(r_config_get_i(core_->config, "asm.bits"));
+    for (int i = 0; i < R_REG_TYPE_LAST; i++) {
+      for_each_rlist<RRegItem>(reg->regset[i].regs, [&](RRegItem* item) {
+        RegisterRow r;
+        r.name = item->name ? item->name : "";
+        const char* type = r_reg_type_tostring(item->type);
+        r.type = type ? type : "";
+        r.size = item->size;
+        r.offset = item->offset;
+        r.arch = arch ? arch : "";
+        r.bits = bits;
+        auto it = roles.find(r.name);
+        if (it != roles.end()) r.role = it->second;
+        out.push_back(std::move(r));
+      });
+    }
+  }
+
+  void calling_conventions_scan(std::vector<CallingConventionRow>& out) override {
+    std::lock_guard lock(mu_);
+    if (!core_ || !core_->anal) return;
+    std::vector<std::string> names;
+    sdb_foreach(core_->anal->sdb_cc, [](void* user, const char* key, const char* value) {
+      if (!strcmp(value, "cc")) static_cast<std::vector<std::string>*>(user)->push_back(key);
+      return true;
+    }, &names);
+    std::sort(names.begin(), names.end());
+    for (const auto& name : names) {
+      CallingConventionRow r;
+      r.name = name;
+      const char* cc = name.c_str();
+      if (const char* ret = r_anal_cc_ret(core_->anal, cc, 0)) {
+        r.ret = ret;
+        for (int i = 0; ; i++) {
+          const char* value = r_anal_cc_ret(core_->anal, cc, i);
+          if (!value) break;
+          r.rets.emplace_back(value);
+        }
+        const int max = r_anal_cc_max_arg(core_->anal, cc);
+        for (int i = 0; i < max; i++) {
+          if (const char* arg = r_anal_cc_argloc(core_->anal, cc, i, 0, -1)) r.args.emplace_back(arg);
+        }
+        if (const char* arg = r_anal_cc_argloc(core_->anal, cc, max, 0, -1)) r.argn = arg;
+      }
+      out.push_back(std::move(r));
+    }
+  }
+
+  std::vector<std::string> class_names() {
+    std::vector<std::string> names;
+    r_anal_class_foreach(core_->anal, [](void* user, const char* key, const char*) {
+      static_cast<std::vector<std::string>*>(user)->push_back(key);
+      return true;
+    }, &names);
+    std::sort(names.begin(), names.end());
+    return names;
+  }
+
+  void classes_scan(std::vector<ClassRow>& out) override {
+    std::lock_guard lock(mu_);
+    if (!core_ || !core_->anal) return;
+    for (const auto& name : class_names()) {
+      ClassRow r;
+      r.name = name;
+      RVecAnalBaseClass* bases = r_anal_class_base_get_all(core_->anal, name.c_str());
+      if (bases && !RVecAnalBaseClass_empty(bases)) {
+        const char* base = RVecAnalBaseClass_at(bases, 0)->class_name;
+        if (base && *base) r.base_name = base;
+      }
+      RVecAnalBaseClass_free(bases);
+      RVecAnalVTable* tables = r_anal_class_vtable_get_all(core_->anal, name.c_str());
+      if (tables && !RVecAnalVTable_empty(tables)) r.vtable_addr = RVecAnalVTable_at(tables, 0)->addr;
+      RVecAnalVTable_free(tables);
+      out.push_back(std::move(r));
+    }
+  }
+
+  void class_methods_scan(std::vector<ClassMethodRow>& out) override {
+    std::lock_guard lock(mu_);
+    if (!core_ || !core_->anal) return;
+    for (const auto& name : class_names()) {
+      RVecAnalMethod* methods = r_anal_class_method_get_all(core_->anal, name.c_str());
+      if (!methods) continue;
+      RAnalMethod* method;
+      R_VEC_FOREACH(methods, method) {
+        ClassMethodRow r;
+        r.class_name = name;
+        r.name = method->name ? method->name : "";
+        r.addr = method->addr;
+        if (method->vtable_offset >= 0) r.vtable_offset = method->vtable_offset;
+        out.push_back(std::move(r));
+      }
+      RVecAnalMethod_free(methods);
+    }
+  }
+
+  void libs_scan(std::vector<LibRow>& out) override {
+    std::lock_guard lock(mu_);
+    if (!core_ || !core_->bin) return;
+    for_each_rlist<char>(r_bin_get_libs(core_->bin), [&](char* name) {
+      out.push_back({name});
+    });
+  }
+
+  void projects_scan(std::vector<ProjectRow>& out) override {
+    std::lock_guard lock(mu_);
+    if (!core_) return;
+    char* path = r_file_abspath(r_config_get(core_->config, "dir.projects"));
+    if (!path) return;
+    RList* entries = r_sys_dir(path);
+    for_each_rlist<char>(entries, [&](char* name) {
+      if (r_core_is_project(core_, name)) out.push_back({name});
+    });
+    r_list_free(entries);
+    free(path);
+  }
+
   // Mirrors the command path's `aflj` + `afxj @ <fn>` per function.
   void xrefs_scan(std::vector<XrefRow>& out) override {
     std::lock_guard lock(mu_);
