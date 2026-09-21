@@ -88,7 +88,7 @@ Linux / macOS:
 
 ```sh
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DR2XSQL_BUILD_FULL=ON -DRadare2_ROOT=/path/to/radare2/prefix
+  -DRadare2_ROOT=/path/to/radare2/prefix
 cmake --build build
 ```
 
@@ -96,19 +96,19 @@ Windows (MSVC):
 
 ```powershell
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
-  -DR2XSQL_BUILD_FULL=ON -DRadare2_ROOT=C:\path\to\radare2\prefix
+  -DRadare2_ROOT=C:\path\to\radare2\prefix
 cmake --build build --config Release
 ```
 
 `Radare2_ROOT` is a radare2 **install prefix** containing `include/libr/`
-and `lib/`. `R2XSQL_BUILD_FULL=ON` enables the libr backend and, when
-`R2XSQL_BUILD_PLUGIN=ON` (the default), `core_r2xsql` in `build/bin/`
-(`build/bin/Release/` for the MSVC Release configuration).
+and `lib/`. CMake requires radare2 and builds the libr backend and plugin by
+default; a missing radare2 installation is a configure error. The plugin is in
+`build/bin/` (`build/bin/Release/` for the MSVC Release configuration).
 
-Without `R2XSQL_BUILD_FULL`, CMake builds the backend-neutral static library
-and examples, with no radare2 build dependency. The r2pipe backend remains
-available to C++ consumers. `R2XSQL_BUILD_EXAMPLES=OFF` disables examples.
-The project also supports being added as a CMake subdirectory.
+`R2XSQL_BUILD_PLUGIN=OFF` disables the plugin target and
+`R2XSQL_BUILD_EXAMPLES=OFF` disables examples. The backend-neutral static
+library and r2pipe backend remain available to C++ consumers. The project
+also supports being added as a CMake subdirectory.
 
 ### Building the in-r2 plugin the radare2 way (Makefile / meson)
 

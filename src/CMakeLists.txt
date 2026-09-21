@@ -5,6 +5,6 @@
 # See LICENSE.
 add_subdirectory(lib)
 
-if(R2XSQL_BUILD_PLUGIN AND R2XSQL_FULL_ENABLED AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/plugin/CMakeLists.txt")
+if(R2XSQL_BUILD_PLUGIN AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/plugin/CMakeLists.txt")
   add_subdirectory(plugin)
 endif()

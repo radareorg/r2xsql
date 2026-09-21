@@ -48,9 +48,46 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 option(R2XSQL_BUILD_PLUGIN    "Build the in-r2 plugin (core_r2xsql)"      ON)
 option(R2XSQL_BUILD_EXAMPLES  "Build r2xsql examples"                   ${R2XSQL_STANDALONE})
 
-option(R2XSQL_BUILD_FULL      "Build the in-process (libr) backend and core_r2xsql plugin (needs radare2)" OFF)
 option(R2XSQL_ALLOW_STATIC_CRT_LIBR
-       "Permit a static MSVC runtime (/MT) with the full/libr flavor — only safe when radare2 is also static-runtime" OFF)
+       "Permit a static MSVC runtime (/MT) with the libr backend — only safe when radare2 is also static-runtime" OFF)
+
+find_package(Radare2 QUIET)
+if(NOT Radare2_FOUND)
+  message(FATAL_ERROR "r2xsql: radare2 is required. Set -DRadare2_ROOT=<install-prefix>.")
+endif()
+
+# CRT hazard: the libr backend frees radare2-allocated buffers
+# (r_core_cmd_str) with the caller's CRT. If an outer project forces a static
+# MSVC runtime (/MT) but radare2 was built against the dynamic runtime (/MD,
+# the meson default), that free crosses CRT heaps and corrupts memory at
+# runtime. The build LINKS cleanly, so this fails silently — make it a hard
+# configure error unless the user affirms radare2 is also static-runtime.
+if(MSVC)
+  set(_r2_static_crt OFF)
+  if(DEFINED CMAKE_MSVC_RUNTIME_LIBRARY
+     AND NOT CMAKE_MSVC_RUNTIME_LIBRARY MATCHES "DLL")
+    set(_r2_static_crt ON)
+  endif()
+  # Also catch /MT injected via raw flags rather than the runtime-library
+  # var — across the global and every per-config flag variable.
+  foreach(_v CMAKE_C_FLAGS CMAKE_CXX_FLAGS
+             CMAKE_C_FLAGS_DEBUG          CMAKE_CXX_FLAGS_DEBUG
+             CMAKE_C_FLAGS_RELEASE        CMAKE_CXX_FLAGS_RELEASE
+             CMAKE_C_FLAGS_RELWITHDEBINFO CMAKE_CXX_FLAGS_RELWITHDEBINFO
+             CMAKE_C_FLAGS_MINSIZEREL     CMAKE_CXX_FLAGS_MINSIZEREL)
+    if(DEFINED ${_v} AND "${${_v}}" MATCHES "(^| )[-/]MT")
+      set(_r2_static_crt ON)
+    endif()
+  endforeach()
+  if(_r2_static_crt AND NOT R2XSQL_ALLOW_STATIC_CRT_LIBR)
+    message(FATAL_ERROR
+      "r2xsql: a static MSVC runtime (/MT) is in effect with the libr "
+      "backend, which frees radare2-allocated buffers with the caller's CRT. "
+      "Mixing a /MT libr backend with a /MD radare2 corrupts the heap at runtime. "
+      "Build radare2 with the same runtime. If it already uses /MT, "
+      "pass -DR2XSQL_ALLOW_STATIC_CRT_LIBR=ON.")
+  endif()
+endif()
 
 # ============================================================================
 # libxsql dependency
@@ -71,63 +108,6 @@ else()
     GIT_TAG        main
     GIT_SHALLOW    TRUE)
   FetchContent_MakeAvailable(libxsql)
-endif()
-
-# ============================================================================
-# radare2 dependency (only the full/libr flavor needs it)
-#   The core library links no radare2. The optional libr backend and
-#   core_r2xsql plugin require radare2.
-# ============================================================================
-
-find_package(Radare2 QUIET)
-
-# R2XSQL_FULL_ENABLED gates the r2xsql_libr object library and the plugin.
-set(R2XSQL_FULL_ENABLED OFF)
-if(R2XSQL_BUILD_FULL)
-  if(Radare2_FOUND)
-    set(R2XSQL_FULL_ENABLED ON)
-    message(STATUS "r2xsql: full flavor enabled — radare2 ${Radare2_VERSION} at ${Radare2_ROOT}")
-    # CRT hazard: the libr backend frees radare2-allocated buffers
-    # (r_core_cmd_str) with the caller's CRT. If an outer project forces a static
-    # MSVC runtime (/MT) but radare2 was built against the dynamic runtime (/MD,
-    # the meson default), that free crosses CRT heaps and corrupts memory at
-    # runtime. The build LINKS cleanly, so this fails silently — make it a hard
-    # configure error unless the user affirms radare2 is also static-runtime.
-    if(MSVC)
-      set(_r2_static_crt OFF)
-      if(DEFINED CMAKE_MSVC_RUNTIME_LIBRARY
-         AND NOT CMAKE_MSVC_RUNTIME_LIBRARY MATCHES "DLL")
-        set(_r2_static_crt ON)
-      endif()
-      # Also catch /MT injected via raw flags rather than the runtime-library
-      # var — across the global and every per-config flag variable.
-      foreach(_v CMAKE_C_FLAGS CMAKE_CXX_FLAGS
-                 CMAKE_C_FLAGS_DEBUG          CMAKE_CXX_FLAGS_DEBUG
-                 CMAKE_C_FLAGS_RELEASE        CMAKE_CXX_FLAGS_RELEASE
-                 CMAKE_C_FLAGS_RELWITHDEBINFO CMAKE_CXX_FLAGS_RELWITHDEBINFO
-                 CMAKE_C_FLAGS_MINSIZEREL     CMAKE_CXX_FLAGS_MINSIZEREL)
-        if(DEFINED ${_v} AND "${${_v}}" MATCHES "(^| )[-/]MT")
-          set(_r2_static_crt ON)
-        endif()
-      endforeach()
-      if(_r2_static_crt AND NOT R2XSQL_ALLOW_STATIC_CRT_LIBR)
-        message(FATAL_ERROR
-          "r2xsql: a static MSVC runtime (/MT) is in effect with the full/libr "
-          "flavor, which frees radare2-allocated buffers with the caller's CRT. "
-          "Mixing a /MT libr backend with a /MD radare2 corrupts the heap at runtime. "
-          "Fix one of: build radare2 static-runtime, build without libr (omit "
-          "-DR2XSQL_BUILD_FULL), or — if radare2 is genuinely static-runtime too — "
-          "pass -DR2XSQL_ALLOW_STATIC_CRT_LIBR=ON.")
-      endif()
-    endif()
-  else()
-    message(WARNING "r2xsql: R2XSQL_BUILD_FULL=ON but radare2 NOT found — skipping "
-                    "the libr backend and core_r2xsql plugin; building the core library. "
-                    "Pass -DRadare2_ROOT=<prefix> to enable the full flavor.")
-  endif()
-else()
-  message(STATUS "r2xsql: core library (default). Pass -DR2XSQL_BUILD_FULL=ON "
-                 "-DRadare2_ROOT=<prefix> for the full/libr flavor + plugin.")
 endif()
 
 # ============================================================================
@@ -172,6 +152,6 @@ if(R2XSQL_STANDALONE)
 else()
   message(STATUS "  Mode             : subproject")
 endif()
-message(STATUS "  Radare2_FOUND    : ${Radare2_FOUND}")
-message(STATUS "  R2XSQL_BUILD_FULL : ${R2XSQL_BUILD_FULL} -> full enabled: ${R2XSQL_FULL_ENABLED} (libr backend + core_r2xsql)")
+message(STATUS "  radare2          : ${Radare2_VERSION} at ${Radare2_ROOT}")
+message(STATUS "  Plugin           : ${R2XSQL_BUILD_PLUGIN}")
 message(STATUS "")
