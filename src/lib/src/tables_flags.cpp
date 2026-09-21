@@ -82,6 +82,7 @@
 #include "json_utils.hpp"
 #include "table_utils.hpp"
 
+#include <algorithm>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -167,6 +168,7 @@ void register_flags_table(Session& s) {
               "flags: name must be [A-Za-z0-9._$] (no spaces or r2 metacharacters)");
           return false;
         }
+        if (r.name == v) return true;
         // `fr <old> <new>` is radare2's generic in-place flag rename
         // (r_flag_rename -> update_flag_item_name): it updates the existing
         // item's name key and never creates a new item, regardless of which
@@ -223,6 +225,13 @@ void register_flags_table(Session& s) {
         if (std::string e = table_utils::command_error_text(out); !e.empty()) {
           xsql::set_vtab_error("flags: rename failed (addr=" +
                                json_utils::hex_addr(r.addr) + "): " + e);
+          return false;
+        }
+        // Refused fr commands may report only to stderr; verify the write.
+        const auto flags = be->cmd_json("fj");
+        if (!flags.is_array() || std::any_of(flags.begin(), flags.end(),
+            [&r](const auto& flag) { return json_utils::str(flag, "name") == r.name; })) {
+          xsql::set_vtab_error("flags: rename was not reflected by fj (name=" + r.name + ")");
           return false;
         }
         r.name = v;
