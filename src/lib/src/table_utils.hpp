@@ -15,6 +15,7 @@
 #include <string>
 #include <string_view>
 
+#include "direct.hpp"
 #include "json_utils.hpp"
 
 namespace r2xsql::table_utils {
