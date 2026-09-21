@@ -1440,7 +1440,7 @@ Source `tk*` enriched with `tj` / `tsj` / `tuj`.
 `ordinal` is recomputed on every query (this table has no cross-query cache,
 since the type database is mutable): it agrees for a given name across two
 queries only while the type set is unchanged in between — an intervening
-INSERT/DELETE/`r2xsql_type_define` shifts the alphabetical position of every
+INSERT/DELETE or native `td` command shifts the alphabetical position of every
 name that sorts after the change. Never derived from any address.
 
 `DELETE FROM types WHERE name = 'X'` ⇒ `t- X`.
@@ -1448,8 +1448,7 @@ name that sorts after the change. Never derived from any address.
 struct/union/enum shell (`kind` must be one of those three — an atomic type,
 typedef, or func needs more than a bare name to exist). For a **full**
 declaration (members, an underlying primitive, a signature), use
-`r2xsql_type_define('<one-line C decl>')`, which the empty-shell INSERT is
-itself built on.
+radare2's `td <C declaration>` command.
 
 Neither `td` nor `t-` is address-scoped (a type definition isn't tied to any
 address, and `t-` deletes purely by name) — unlike every other writable
@@ -1464,7 +1463,12 @@ below; the pipe backend is unaffected.
 ```sql
 SELECT name, kind, size FROM types WHERE kind = 'struct' ORDER BY size DESC LIMIT 20;
 INSERT INTO types (name, kind) VALUES ('Header', 'struct');
-SELECT r2xsql_type_define('struct hdr { int magic; int size; char name[16]; }');
+```
+
+At the radare2 prompt:
+
+```text
+"td struct hdr { int magic; int size; char name[16]; };"
 ```
 
 The full type set (e.g. the thousands of Windows API typedefs) lives in
@@ -1786,8 +1790,8 @@ table is an editable annotation. Each affected row issues one radare2 command.
 | `comments`  | `CCu base64:<b64> @ <addr>` | `text` ⇒ `CCu base64:<b64> @ <addr>` | `CC- @ <addr>` |
 | `bookmarks` | `f <name> @ <addr>` (bookmarks space) | `name` ⇒ `fr <old> <new>` | `f- @ <addr>` |
 | `locals`    | — | `name` ⇒ `afvn <new> <old>`; `type` ⇒ `afvt <name> <type>` | — |
-| `types`     | `td "<kind> <name> {};"` (empty struct/union/enum shell only; a full declaration needs `r2xsql_type_define`) | — | `t- <name>`   |
-| `projects`  | — (use `r2xsql_project_save`) | —                 | `P- <name>`   |
+| `types`     | `td "<kind> <name> {};"` (empty struct/union/enum shell only; a full declaration uses r2's `td`) | — | `t- <name>`   |
+| `projects`  | — (use `Ps <name>`) | —                 | `P- <name>`   |
 | `io_maps`   | `om $d <vaddr> <size> <paddr> <perm> <name>` (add region) | — | `om-<map_id>` (remove map) |
 | `patches`   | `wx <hex> @ <addr>` (stage) — `patched_bytes` (raw hex) or `asm_text` (assembled via `pa` first, exactly one required) | `committed` ⇒ `1` only: `wci` (commits **ALL** pending patches, never row-selective — see the table's own section) | `wcu` (uncommitted **and** most-recently-staged row only) |
 | `bytes`     | —                   | `value` ⇒ `wx <hex> @ <addr>`, **direct/immediate** — NOT staged, bypasses `io.cache` entirely (see the table's own section for how this differs from `patches`) | —             |
@@ -1823,7 +1827,7 @@ Rules and gotchas:
   predicate matching thousands of rows, **chunk** it (e.g. by address range) to
   keep each statement bounded.
 - **Persistence:** mutations live in the radare2 session and vanish on exit
-  **unless** you saved a project (`Ps name` or `r2xsql_project_save`). See below.
+  **unless** you saved a project (`Ps name`). See below.
 - **`patches` commit is table-wide, not row-selective.** `UPDATE patches SET
   committed = 1 WHERE addr = X` commits every currently-pending patch in the
   session, not just the row at `X` — radare2's write cache has no
@@ -1867,34 +1871,30 @@ WHERE addr IN (SELECT addr FROM funcs WHERE name LIKE '%init%');
 
 ## Persistence & Projects
 
-Edits (renames, comments, flags, types) accumulate in the radare2 core and are
-written to disk only when a **project** is saved.
-
-```sql
-SELECT r2xsql_project_save('triage1');   -- Ps: save the session as a project, no exit
-SELECT name FROM projects;              -- Plj: list saved projects
-SELECT r2xsql_project_open('triage1');   -- P:  load a project mid-session
-DELETE FROM projects WHERE name = 'x';  -- P-: delete a project on disk
-```
-
-Save explicitly with `SELECT r2xsql_project_save('name')` or radare2's
-`Ps name` before exiting. Resume with `r2xsql_project_open('name')` or `P name`.
-The plugin does not save automatically on exit.
+Renames, comments, flags, and types live in the radare2 session. Save explicitly
+with `Ps NAME` and reopen with `P NAME`; the plugin does not save on exit.
+These are native radare2 commands, sent through the same transport as SQL.
+Binary byte writes require radare2's `-w`; analysis annotations do not.
 
 At the radare2 prompt:
 
 ```text
 sql UPDATE funcs SET name = 'aes_init' WHERE addr = 0x401000
 sql UPDATE comments SET text = 'crypto init' WHERE addr = 0x401000
-sql SELECT r2xsql_project_save('demo')
+Ps demo
 ```
 
-In a later session:
+In a later session, use `P demo` before querying the saved analysis. SQL still
+supports listing and deleting projects:
 
-```text
-sql SELECT r2xsql_project_open('demo')
-sql SELECT name FROM funcs WHERE addr = 0x401000
+```sql
+SELECT name FROM projects;
+DELETE FROM projects WHERE name = 'obsolete';
 ```
+
+Over HTTP, project saves may be refused by `http.sandbox`; an empty response
+does not prove success. If project writes are needed on your trusted local
+server, configure `e http.sandbox=false` and verify the saved project exists.
 
 ---
 
@@ -1951,9 +1951,6 @@ without limit.
 | Function                       | Returns | Effect (radare2)                                     |
 |--------------------------------|---------|------------------------------------------------------|
 | `regexp(pattern, text)`        | INT     | ECMAScript-regex match; backs `text REGEXP 'pat'`    |
-| `r2xsql_project_save('name')`   | TEXT    | save the session as a project — `Ps name`            |
-| `r2xsql_project_open('name')`   | TEXT    | load a project into the session — `P name`           |
-| `r2xsql_type_define('<C decl>')`| TEXT    | define a type from a one-line C decl — `td <decl>`   |
 
 ```sql
 -- regex on names (the registered regexp())
@@ -2103,7 +2100,7 @@ catch them. High `cc` alone isn't "interesting" — combine it with API/string
 anchors.
 
 ### Bottom-up "re-source" loop
-Save with `Ps NAME` or `r2xsql_project_save` after annotating. Repeat:
+Save with `Ps NAME` after annotating. Repeat:
 1. **Anchor** on a unique data leaf (a one-off string, a distinctive import).
 2. **Walk back** via `xrefs` (`to_addr = <leaf>` → caller, then caller's caller).
 3. **Name & comment** each hop (`UPDATE funcs SET name = …`,
@@ -2134,7 +2131,7 @@ SELECT text FROM comments WHERE text LIKE 'ESIL:%';
 
 ### Type reconstruction
 Browse `types` / `types_members`; define new ones with
-`r2xsql_type_define('<C decl>')`; apply a type at an address with a raw command
+the quoted native command `"td <C declaration>"`; apply a type at an address with a raw command
 (`tl <TYPENAME> @ <addr>`).
 
 ---
@@ -2248,7 +2245,7 @@ LEFT JOIN funcs f ON f.addr = x.from_func;
 | Types / struct layout                      | `types` / `types_members`                        |
 | Register profile / relocations / linked libs | `registers` / `relocs` / `libs`                |
 | Rename / comment / flag / bookmark         | writable tables (`funcs`/`comments`/`flags`/`bookmarks`) |
-| Save / resume work                         | projects + `r2xsql_project_save`/`_open`          |
+| Save / resume work                         | `Ps NAME` / `P NAME`; `projects` to list          |
 | Something SQL can't express                | raw radare2 commands or r2js         |
 
 ---
@@ -2264,5 +2261,5 @@ LEFT JOIN funcs f ON f.addr = x.from_func;
 - **No `pseudocode` table:** no decompiler detected — install one (see above).
 - **Sparse `types` / unresolved ordinal imports:** verify the host radare2
   installation includes its `share/` data directory.
-- **Analysis edits disappeared** after exit: save a project with `Ps name` or
-  `r2xsql_project_save` before quitting. Use radare2's `-w` for binary byte writes.
+- **Analysis edits disappeared** after exit: save a project with `Ps name`
+  before quitting. Use radare2's `-w` for binary byte writes.

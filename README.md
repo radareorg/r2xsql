@@ -34,10 +34,15 @@ Writable surfaces: **funcs** (rename, prototype), **comments**, **flags**,
 **locals** (rename + retype), **bookmarks**, **types** (create struct/union/
 enum), **patches** (byte edits), **io_maps**, **bytes**.
 
-**Persist it.** Save analysis with `Ps NAME` in radare2 or
-`SELECT r2xsql_project_save('NAME')` through SQL. Reopen it with `P NAME` or
-`SELECT r2xsql_project_open('NAME')`. The plugin uses radare2's native project
-format; it does not automatically save on exit.
+**Persist it.** Save analysis with `Ps NAME` in radare2 and reopen it with
+`P NAME`. The plugin uses radare2's native project format; it does not
+automatically save on exit.
+
+Project save/open and full type declarations use native radare2 commands:
+`Ps NAME`, `P NAME`, and `"td struct Header { int magic; };"`. The former SQL
+functions `r2xsql_project_save`, `r2xsql_project_open`, and
+`r2xsql_type_define` are removed. SQL can still list/delete projects and
+create empty struct/union/enum types through the corresponding tables.
 
 ## Requirements
 
