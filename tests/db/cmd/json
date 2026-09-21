@@ -1,0 +1,62 @@
+# Command aliases preserve quoted SQL when applying native JSON filters.
+NAME=JSON NULLs, columns, numeric strings and statement count
+FILE=malloc://1024
+ARGS=-e log.level=0 -e bin.relocs.apply=true -i build/load.r2
+CMDS=<<EOF
+"$query=\"sqlj SELECT NULL AS missing, '' AS empty, 'NULL' AS literal; SELECT 7 > 3 AS n\""
+$query~{success}
+"$query=\"sqlj SELECT NULL AS missing, '' AS empty, 'NULL' AS literal\""
+$query~{results[0].columns}
+"$query=\"sqlj SELECT NULL AS missing, '' AS empty, 'NULL' AS literal\""
+$query~{results[0].rows}
+"$query=\"sqlj SELECT 7 > 3 AS n\""
+$query~{results[0].rows}
+"$query=\"sqlj SELECT 1; SELECT 2\""
+$query~{statement_count}
+EOF
+EXPECT=<<EOF
+true
+["missing","empty","literal"]
+[[null,"","NULL"]]
+[["1"]]
+2
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=JSON writes and literal semicolon
+FILE=malloc://1024
+ARGS=-e log.level=0 -e bin.relocs.apply=true -i build/load.r2
+CMDS=<<EOF
+"$query=\"sqlj INSERT INTO comments(addr,text) VALUES(0,'a;b|c'); SELECT text FROM comments WHERE addr=0\""
+$query~{results[1].rows}
+EOF
+EXPECT=<<EOF
+[["a;b|c"]]
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=JSON stops at first error and rejects malformed SQL
+FILE=malloc://1024
+ARGS=-e log.level=0 -e bin.relocs.apply=true -i build/load.r2
+CMDS=<<EOF
+"$query=\"sqlj SELECT 1; SELECT * FROM missing_table; INSERT INTO comments(addr,text) VALUES(0,'must not execute')\""
+$query~{success}
+"$query=\"sqlj SELECT 1; SELECT * FROM missing_table; INSERT INTO comments(addr,text) VALUES(0,'must not execute')\""
+$query~{results[1].error}
+"$query=\"sqlj SELECT 1; SELECT * FROM missing_table; INSERT INTO comments(addr,text) VALUES(0,'must not execute')\""
+$query~{statement_count}
+"sql,:quiet SELECT count(*) FROM comments WHERE addr=0"
+"$query=\"sqlj SELECT 'unterminated\""
+$query~{success}
+EOF
+EXPECT=<<EOF
+false
+no such table: missing_table
+3
+0
+false
+EOF
+EXPECT_ERR=
+RUN

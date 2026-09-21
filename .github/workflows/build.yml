@@ -60,6 +60,12 @@ jobs:
             -DRadare2_ROOT="$GITHUB_WORKSPACE/r2prefix"
           cmake --build build --config Release
 
+      - name: Run r2r regression tests
+        run: |
+          export PATH="$GITHUB_WORKSPACE/r2prefix/bin:$PATH"
+          export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/r2prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          make -C tests R2XSQL_PLUGIN="$GITHUB_WORKSPACE/build/bin/core_r2xsql.so"
+
       - name: Stage artifacts
         shell: bash
         run: bash .github/scripts/stage_artifacts.sh

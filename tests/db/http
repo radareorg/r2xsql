@@ -1,0 +1,11 @@
+NAME=Native HTTP GET and POST transport
+FILE=malloc://1024
+ARGS=-e log.level=0 -e bin.relocs.apply=true -i build/load.r2
+CMDS=<<EOF
+!python3 http_transport.py
+EOF
+EXPECT=<<EOF
+HTTP GET and POST: OK
+EOF
+EXPECT_ERR=
+RUN

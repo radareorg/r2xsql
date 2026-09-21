@@ -1,16 +1,17 @@
 """Exercise the plugin through radare2's own HTTP command endpoint."""
 
 import json
+import os
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import socket
 import subprocess
 import time
 from urllib.parse import quote
 from urllib.request import build_opener, ProxyHandler
 
-import pytest
 
 
-@pytest.mark.parametrize("post", [False, True], ids=["GET", "POST"])
 def test_r2_http(r2_bin, r2xsql_plugin, fixture_binary, tmp_path, post):
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
@@ -29,9 +30,9 @@ def test_r2_http(r2_bin, r2xsql_plugin, fixture_binary, tmp_path, post):
     log_path = tmp_path / "r2-http.log"
     with log_path.open("w") as log:
         proc = subprocess.Popen([
-            r2_bin, "-N", "-q", "-e", "http.bind=127.0.0.1", "-e", f"http.port={port}",
+            r2_bin, "-NN", "-q", "-e", "http.bind=127.0.0.1", "-e", f"http.port={port}",
             "-e", "http.log=false", "-e", "scr.color=0",
-            "-i", str(r2xsql_plugin), "-c", "aa", "-c", "=h", str(fixture_binary),
+            "-c", f"L {r2xsql_plugin}", "-c", "aa", "-c", "=h", str(fixture_binary),
         ], stdout=log, stderr=log, cwd=tmp_path)
         try:
             deadline = time.monotonic() + 15
@@ -84,3 +85,11 @@ def test_r2_http(r2_bin, r2xsql_plugin, fixture_binary, tmp_path, post):
                 except subprocess.TimeoutExpired:
                     proc.kill()
                     proc.wait()
+
+
+if __name__ == "__main__":
+    for post in (False, True):
+        with TemporaryDirectory() as directory:
+            test_r2_http(os.environ["R2R_RADARE2"], os.environ["R2XSQL_PLUGIN"],
+                         Path("build/fixture.bin").resolve(), Path(directory), post)
+    print("HTTP GET and POST: OK")

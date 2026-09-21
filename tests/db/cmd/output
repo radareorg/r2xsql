@@ -1,0 +1,44 @@
+NAME=Native tables, CSV and table queries
+FILE=malloc://1024
+ARGS=-e log.level=0 -e bin.relocs.apply=true -i build/load.r2
+CMDS=<<EOF
+"sql SELECT 1 AS n, 'abc' AS name"
+"sql,:csv SELECT 1 AS n, 'a,b' AS name"
+"sql,n/gt/1,n/sort/dec,:quiet SELECT 1 AS n UNION SELECT 2 UNION SELECT 3"
+e cfg.table.format=csv
+"sql SELECT 7 AS n"
+e cfg.table.format=
+"sql,:csv SELECT 1 AS n WHERE 0"
+EOF
+EXPECT=<<EOF
+n name
+------
+1 abc
+n,name
+1,"a,b"
+3
+2
+7
+n
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=Help and invalid commands
+FILE=malloc://1024
+ARGS=-e log.level=0 -e bin.relocs.apply=true -i build/load.r2
+CMDS=<<EOF
+sql,?~:csv[0]
+sql,:help~:csv[0]
+"sql,:csv SELECT * FROM missing_table"
+sql.SELECT 1
+EOF
+EXPECT=<<EOF
+:csv
+:csv
+ERROR: no such table: missing_table
+Unknown sql subcommand: sql.SELECT 1
+See `sql.?` for available subcommands.
+EOF
+EXPECT_ERR=
+RUN
