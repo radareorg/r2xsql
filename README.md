@@ -1,5 +1,7 @@
 # r2xsql
 
+[![ci status](https://github.com/radareorg/r2xsql/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/radareorg/r2xsql/actions/workflows/build.yml?query=branch%3Amain)
+
 SQL interface for [radare2](https://github.com/radareorg/radare2), powered
 by [`libxsql`](https://github.com/0xeb/libxsql).
 

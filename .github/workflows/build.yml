@@ -21,7 +21,7 @@ concurrency:
 # builds the libr backend and in-r2 plugin. The overlay artifact installs the
 # plugin under r2's own plugin dir, on top of a matching radare2 install prefix.
 env:
-  R2_REF: "94949e8122e8d8031c62436011d0106875f8da1a"  # 6.1.6-135 (builds 6.1.7)
+  R2_REF: "6.2.2"
 
 jobs:
   # ============================================================================
