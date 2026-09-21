@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Stage r2xsql release trees from a completed build:
-#   dist/overlay/  — extract ON TOP OF a radare2 install prefix (libr drop-in):
+#   dist/plugin/  — extract ON TOP OF a radare2 install prefix (libr drop-in):
 #                      <r2-plugin-dir>/core_r2xsql.*  (r2's own plugin search dir)
 #
 # The plugin's relative path is derived from the installed prefix layout so the
-# overlay drops the plugin exactly where this r2 looks for it — Linux uses
+# plugin drops the plugin exactly where this r2 looks for it — Linux uses
 # <libdir>/radare2/<ver>/, Windows uses lib/plugins.
 set -euo pipefail
 
@@ -19,7 +19,7 @@ fi
 # radare2's system plugin dir, RELATIVE to the prefix, derived from the installed
 # layout (we do NOT run radare2 — `radare2 -H` drops into r2pipe mode under CI
 # pipes). The default meson build links the core plugins statically, so the
-# plugin dir often does NOT exist on disk after install (the overlay creates it):
+# plugin dir often does NOT exist on disk after install (the plugin creates it):
 #   * Windows (meson): <prefix>/lib/plugins                 — and there is no
 #     */radare2/<version> dir at all, so the scan below finds nothing.
 #   * Unix    (meson): <prefix>/<libdir>/radare2/<version>  (libdir = lib, lib64,
@@ -52,7 +52,7 @@ fi
 if [ -z "${REL_PLUGIN}" ]; then
   REL_PLUGIN="lib/plugins"
 fi
-echo "radare2 plugin overlay dir: ${REL_PLUGIN}"
+echo "radare2 core plugin dir: ${REL_PLUGIN}"
 
 # Helper: copy the first path that exists.
 copy_first() {
@@ -66,27 +66,43 @@ copy_first() {
 }
 
 rm -rf dist
-mkdir -p "dist/overlay/${REL_PLUGIN}"
+mkdir -p "dist/plugin/${REL_PLUGIN}"
 
-copy_first "dist/overlay/${REL_PLUGIN}/" \
+copy_first "dist/plugin/${REL_PLUGIN}/" \
   build/bin/core_r2xsql.so build/bin/core_r2xsql.dylib build/bin/core_r2xsql.dll \
   build/bin/Release/core_r2xsql.dll build/src/plugin/core_r2xsql.so \
   build/src/plugin/Release/core_r2xsql.dll
 
-cat > dist/overlay/README.txt <<EOF
-r2xsql — radare2 plugin overlay
+cat > dist/plugin/README.txt <<EOF
+r2xsql — radare2 core plugin
 
 Extract this archive ON TOP OF your matching radare2 install prefix (the
 directory that contains bin/radare2[.exe]). It adds:
 
   ${REL_PLUGIN}/core_r2xsql.*    in-r2 plugin
 
-Usage:
-  radare2 <file>
-  aaa
-  sql SELECT name FROM funcs LIMIT 5
+Confirm the plugin loaded with Lcj inside radare2.
 
-Built against radare2 ${R2_REF}. The plugin requires the same radare2 build.
+At the radare2 prompt:
+  aaa
+  sql SELECT name, size FROM funcs LIMIT 5
+  sql,:csv SELECT name, size FROM funcs LIMIT 5
+  "sqlj SELECT name FROM funcs WHERE size > 100; SELECT count(*) FROM strings"
+
+sql prints a native radare2 table; sqlj returns a JSON envelope for scripts,
+including SQL NULLs and one result per statement. Quote the whole command
+with double quotes to preserve SQL operators and statement separators.
+Analysis is explicit: run aaa or start radare2 with -A.
+
+The plugin also works through radare2's own HTTP server:
+  radare2 -e http.bind=127.0.0.1 -e http.port=9090 -c aaa -c '=h' <file>
+  curl --data-binary '"sqlj SELECT name FROM funcs LIMIT 5"' http://127.0.0.1:9090/cmd/
+
+Read the command output for errors even when HTTP returns status 200.
+Save analysis with Ps NAME before exiting; binary byte writes require -w.
+
+Built against radare2 ${R2_REF}. Rebuild for a different radare2 ABI.
+
 EOF
 
 echo "=== staged tree ==="
