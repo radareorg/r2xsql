@@ -22,15 +22,7 @@
 namespace r2xsql {
 
 namespace {
-struct IoMapRow {
-  int64_t     start_addr = 0;  // omj "from"
-  int64_t     end_addr = 0;    // omj "to" + 1 (exclusive, matches segments)
-  int64_t     paddr = 0;          // omj "delta"
-  int64_t     map_id = 0;         // omj "map"
-  int64_t     fd = 0;             // omj "fd"
-  std::string perm;
-  std::string name;
-};
+using direct::IoMapRow;
 
 // Build `om $d <vaddr> <size> <paddr> <perm> [name]` from an IO-map row spec.
 std::string make_om_command(int64_t start, int64_t end, int64_t paddr,
@@ -51,6 +43,10 @@ void register_io_maps_table(Session& s) {
       return table_utils::quick_count(be, "om~?", 64);
     })
     .cache_builder([be = s.backend_ptr()](std::vector<IoMapRow>& rows) {
+      if (auto* api = be->direct()) {
+        api->io_maps_scan(rows);
+        return;
+      }
       auto arr = be->cmd_json("omj");
       if (!arr.is_array()) return;
       rows.reserve(arr.size());

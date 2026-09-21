@@ -394,6 +394,25 @@ struct SymbolRow : EntryRow {
   bool is_imported = false;
 };
 
+struct IoMapRow {
+  int64_t     start_addr = 0;
+  int64_t     end_addr = 0;
+  int64_t     paddr = 0;
+  int64_t     map_id = 0;
+  int64_t     fd = 0;
+  std::string perm;
+  std::string name;
+};
+
+struct PatchRow {
+  int64_t     addr = 0;
+  int64_t     size = 0;
+  std::string original_bytes;
+  std::string patched_bytes;
+  int         committed = 0;
+  bool        is_stack_top = false;
+};
+
 // The C-API row producers, one method per command shape a ported table has.
 // Implemented only by libr; see `Backend::direct()`, which returns nullptr on
 // every backend that has no in-process radare2.
@@ -518,6 +537,8 @@ class Api {
   // address exactly as `tables_exports.cpp`'s own `merge_row` does.
   virtual void entries_scan(std::vector<EntryRow>& out) = 0;
   virtual void symbols_scan(std::vector<SymbolRow>& out) = 0;
+  virtual void io_maps_scan(std::vector<IoMapRow>& out) = 0;
+  virtual void patches_scan(std::vector<PatchRow>& out) = 0;
 
   // `comments` full scan -- the command path's `CCj`, a single full-scan
   // command (no per-function or per-address loop to collapse). Walks

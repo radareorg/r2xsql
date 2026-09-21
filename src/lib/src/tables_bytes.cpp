@@ -36,6 +36,7 @@
 #include "tables.hpp"
 #include "json_utils.hpp"
 #include "table_utils.hpp"
+#include "table_sources.hpp"
 
 namespace r2xsql {
 
@@ -69,13 +70,11 @@ int64_t saturated_end(int64_t start, int64_t length) {
 
 std::vector<Sect> load_sections(Backend* be) {
   std::vector<Sect> out;
-  auto j = be->cmd_json("iSj");
-  if (!j.is_array()) return out;
-  for (auto& s : j) {
+  for (const auto& s : table_sources::sections(be)) {
     Sect sec;
-    sec.vaddr = json_utils::i64(s, "vaddr");
-    int64_t raw_size = std::max<int64_t>(0, json_utils::i64(s, "size"));
-    int64_t virtual_size = json_utils::i64(s, "vsize");
+    sec.vaddr = s.addr;
+    int64_t raw_size = std::max<int64_t>(0, s.size);
+    int64_t virtual_size = s.vsize;
     if (virtual_size <= 0) virtual_size = raw_size;
     if (virtual_size <= 0) continue;
     sec.end = saturated_end(sec.vaddr, virtual_size);
@@ -87,18 +86,26 @@ std::vector<Sect> load_sections(Backend* be) {
 
 std::vector<MapSpan> load_maps(Backend* be) {
   std::vector<MapSpan> out;
-  auto j = be->cmd_json("omj");
-  if (!j.is_array()) return out;
-  for (const auto& m : j) {
-    MapSpan span;
-    span.start = json_utils::i64(m, "from");
-    const int64_t last = json_utils::i64(m, "to");
-    if (last < span.start) continue;
-    span.end = last == std::numeric_limits<int64_t>::max()
-                   ? last
-                   : last + 1;
-    span.fd = json_utils::i64(m, "fd", -1);
-    if (span.end > span.start) out.push_back(span);
+  if (auto* api = be->direct()) {
+    std::vector<direct::IoMapRow> maps;
+    api->io_maps_scan(maps);
+    for (const auto& m : maps) {
+      if (m.end_addr > m.start_addr) out.push_back({m.start_addr, m.end_addr, m.fd});
+    }
+  } else {
+    auto j = be->cmd_json("omj");
+    if (!j.is_array()) return out;
+    for (const auto& m : j) {
+      MapSpan span;
+      span.start = json_utils::i64(m, "from");
+      const int64_t last = json_utils::i64(m, "to");
+      if (last < span.start) continue;
+      span.end = last == std::numeric_limits<int64_t>::max()
+                     ? last
+                     : last + 1;
+      span.fd = json_utils::i64(m, "fd", -1);
+      if (span.end > span.start) out.push_back(span);
+    }
   }
   std::sort(out.begin(), out.end(), [](const MapSpan& a, const MapSpan& b) {
     if (a.start != b.start) return a.start < b.start;
@@ -152,9 +159,13 @@ std::vector<std::pair<int64_t, int64_t>> merged_map_spans(
 std::vector<int> read_p8(Backend* be, int64_t addr, int64_t count) {
   std::vector<int> out;
   if (count <= 0) return out;
-  std::string hex = be->cmd("p8 " + std::to_string(count) + " @ " + json_utils::hex_addr(addr));
   std::vector<uint8_t> bytes;
-  json_utils::hex_decode_partial(hex, bytes);
+  if (auto* api = be->direct()) {
+    api->read_bytes(addr, static_cast<size_t>(count), bytes);
+  } else {
+    std::string hex = be->cmd("p8 " + std::to_string(count) + " @ " + json_utils::hex_addr(addr));
+    json_utils::hex_decode_partial(hex, bytes);
+  }
   out.reserve(bytes.size());
   for (uint8_t b : bytes) out.push_back(b);
   return out;

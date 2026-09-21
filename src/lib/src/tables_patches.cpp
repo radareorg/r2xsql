@@ -129,22 +129,17 @@ std::string dispatch_write(Backend* be, int64_t addr, const std::string& command
   return be->cmd(command + " @ " + json_utils::hex_addr(addr));
 }
 
-struct PatchRow {
-  int64_t     addr = 0;
-  int64_t     size = 0;
-  std::string original_bytes;  // wcj "after" (swap-corrected: pre-patch bytes)
-  std::string patched_bytes;   // wcj "before" (swap-corrected: post-patch bytes)
-  int         committed = 0;   // wcj "written", verbatim (not swapped)
-  // True only for the LAST entry in the freshly-read cache layer -- the one
-  // `wcu` would target. See the DELETE constraint note at the top of this file.
-  bool        is_stack_top = false;
-};
+using direct::PatchRow;
 
 // Read the current write-cache layer (`wcj`) into row form, swap-correcting
 // the before/after field names. Single source of truth for SELECT and for
 // every mutation's readback verification below.
 std::vector<PatchRow> load_layer(Backend* be) {
   std::vector<PatchRow> rows;
+  if (auto* api = be->direct()) {
+    api->patches_scan(rows);
+    return rows;
+  }
   auto j = be->cmd_json("wcj");
   if (!j.is_object()) return rows;
   auto it = j.find("layer");
