@@ -125,6 +125,11 @@ std::string compact_signature(std::string_view signature) {
 
 bool signature_readback_matches(
     Backend* be, int64_t addr, std::string_view expected) {
+  if (auto* api = be->direct()) {
+    FuncRow row;
+    return api->function_details(addr, true, row) &&
+        compact_signature(row.prototype) == compact_signature(expected);
+  }
   auto info = be->cmd_json("afij @ " + json_utils::hex_addr(addr));
   const nlohmann::json* func = nullptr;
   if (info.is_array() && !info.empty() && info[0].is_object()) {
@@ -156,12 +161,17 @@ bool signature_readback_matches(
 // always tracks the live session's (arch,bits) exactly. `afclj` emits a JSON
 // OBJECT keyed by convention name (see tables_calling_conventions.cpp).
 bool calling_convention_exists(Backend* be, const std::string& cc) {
+  if (auto* api = be->direct()) return api->calling_convention_exists(cc);
   auto obj = be->cmd_json("afclj");
   return obj.is_object() && obj.contains(cc);
 }
 
 bool calltype_readback_matches(
     Backend* be, int64_t addr, std::string_view expected) {
+  if (auto* api = be->direct()) {
+    FuncRow row;
+    return api->function_details(addr, false, row) && row.calltype == expected;
+  }
   auto info = be->cmd_json("afij @ " + json_utils::hex_addr(addr));
   const nlohmann::json* func = nullptr;
   if (info.is_array() && !info.empty() && info[0].is_object()) {

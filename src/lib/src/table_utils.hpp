@@ -58,6 +58,7 @@ inline std::string command_error_text(const std::string& out) {
 }
 
 inline bool resolve_func_owner(Backend* be, int64_t addr, int64_t& out) {
+  if (auto* api = be->direct()) return api->function_owner(addr, out);
   auto info = be->cmd_json("afij @ " + json_utils::hex_addr(addr));
   const nlohmann::json* obj = nullptr;
   if (info.is_array() && !info.empty() && info[0].is_object()) {
@@ -74,6 +75,19 @@ inline bool resolve_func_owner(Backend* be, int64_t addr, int64_t& out) {
     }
   }
   return false;
+}
+
+inline std::vector<int64_t> function_starts(Backend* be) {
+  std::vector<int64_t> out;
+  if (auto* api = be->direct()) {
+    api->function_starts(out);
+  } else {
+    auto funcs = be->cmd_json("aflj");
+    if (funcs.is_array()) {
+      for (const auto& f : funcs) out.push_back(json_utils::i64_addr(f));
+    }
+  }
+  return out;
 }
 
 // Scoped r2 commands accept interior addresses; SQL equality requires a start.

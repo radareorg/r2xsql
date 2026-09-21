@@ -337,7 +337,7 @@ void esil_rows_for_func(Backend* be, int64_t fa,
 // ---- esil_ops table ----
 class EsilOpsGen : public xsql::Generator<EsilOpRow> {
   Backend* be_;
-  nlohmann::json funcs_;
+  std::vector<int64_t> funcs_;
   size_t fi_ = 0;
   std::vector<EsilOpRow> buf_;
   std::vector<EsilOperandRow> discard_;
@@ -347,13 +347,13 @@ class EsilOpsGen : public xsql::Generator<EsilOpRow> {
   // func_addr bits for a >1M-op function, so hand out a collision-free running id.
   int64_t rid_ = 0;
  public:
-  explicit EsilOpsGen(Backend* be) : be_(be), funcs_(be->cmd_json("aflj")) {}
+  explicit EsilOpsGen(Backend* be) : be_(be), funcs_(table_utils::function_starts(be)) {}
   bool next() override {
     for (;;) {
       if (bi_ < buf_.size()) { cur_ = buf_[bi_++]; ++rid_; return true; }
-      if (!funcs_.is_array() || fi_ >= funcs_.size()) return false;
+      if (fi_ >= funcs_.size()) return false;
       buf_.clear(); discard_.clear();
-      esil_rows_for_func(be_, json_utils::i64_addr(funcs_[fi_++]), buf_, discard_);
+      esil_rows_for_func(be_, funcs_[fi_++], buf_, discard_);
       bi_ = 0;
     }
   }
@@ -390,7 +390,7 @@ class EsilOpsInFuncIterator : public xsql::RowIterator {
 // ---- esil_operands table ----
 class EsilOperandsGen : public xsql::Generator<EsilOperandRow> {
   Backend* be_;
-  nlohmann::json funcs_;
+  std::vector<int64_t> funcs_;
   size_t fi_ = 0;
   std::vector<EsilOpRow> discard_;
   std::vector<EsilOperandRow> buf_;
@@ -400,13 +400,13 @@ class EsilOperandsGen : public xsql::Generator<EsilOperandRow> {
   // can alias into func_addr for a large function, so hand out a running id.
   int64_t rid_ = 0;
  public:
-  explicit EsilOperandsGen(Backend* be) : be_(be), funcs_(be->cmd_json("aflj")) {}
+  explicit EsilOperandsGen(Backend* be) : be_(be), funcs_(table_utils::function_starts(be)) {}
   bool next() override {
     for (;;) {
       if (bi_ < buf_.size()) { cur_ = buf_[bi_++]; ++rid_; return true; }
-      if (!funcs_.is_array() || fi_ >= funcs_.size()) return false;
+      if (fi_ >= funcs_.size()) return false;
       discard_.clear(); buf_.clear();
-      esil_rows_for_func(be_, json_utils::i64_addr(funcs_[fi_++]), discard_, buf_);
+      esil_rows_for_func(be_, funcs_[fi_++], discard_, buf_);
       bi_ = 0;
     }
   }

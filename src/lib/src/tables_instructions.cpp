@@ -268,18 +268,18 @@ class InsnsVecGen : public xsql::Generator<InsnRow> {
 // `LIMIT`-bounded query never pays for functions past what it consumed.
 class InsnsGen : public xsql::Generator<InsnRow> {
   Backend* be_;
-  nlohmann::json funcs_;
+  std::vector<int64_t> funcs_;
   size_t fi_ = 0;
   std::vector<InsnRow> buf_;
   size_t bi_ = 0;
   InsnRow cur_;
  public:
-  explicit InsnsGen(Backend* be) : be_(be), funcs_(be->cmd_json("aflj")) {}
+  explicit InsnsGen(Backend* be) : be_(be), funcs_(table_utils::function_starts(be)) {}
   bool next() override {
     for (;;) {
       if (bi_ < buf_.size()) { cur_ = buf_[bi_++]; return true; }
-      if (!funcs_.is_array() || fi_ >= funcs_.size()) return false;
-      buf_ = insns_for_func(be_, json_utils::i64_addr(funcs_[fi_++]));
+      if (fi_ >= funcs_.size()) return false;
+      buf_ = insns_for_func(be_, funcs_[fi_++]);
       bi_ = 0;
     }
   }

@@ -22,6 +22,7 @@
 
 #include "tables.hpp"
 #include "json_utils.hpp"
+#include "table_utils.hpp"
 
 namespace r2xsql {
 
@@ -36,6 +37,13 @@ struct FrameRow {
 std::optional<FrameRow> frame_for_func(Backend* be, int64_t fa) {
   FrameRow r;
   r.func_addr = fa;
+  if (auto* api = be->direct()) {
+    direct::FuncRow f;
+    if (!api->function_details(fa, false, f)) return std::nullopt;
+    r.frame_size = f.stackframe;
+    r.has_frame_size = true;
+    return r;
+  }
   auto j = be->cmd_json("afij @ " + json_utils::hex_addr(fa));
   const nlohmann::json* f = nullptr;
   if (j.is_array() && !j.empty() && j[0].is_object()) f = &j[0];
@@ -64,14 +72,14 @@ void emit_column(xsql::FunctionContext& ctx, int col, const FrameRow& r) {
 
 class FramesGen : public xsql::Generator<FrameRow> {
   Backend* be_;
-  nlohmann::json funcs_;
+  std::vector<int64_t> funcs_;
   size_t fi_ = 0;
   FrameRow cur_;
  public:
-  explicit FramesGen(Backend* be) : be_(be), funcs_(be->cmd_json("aflj")) {}
+  explicit FramesGen(Backend* be) : be_(be), funcs_(table_utils::function_starts(be)) {}
   bool next() override {
-    while (funcs_.is_array() && fi_ < funcs_.size()) {
-      auto row = frame_for_func(be_, json_utils::i64_addr(funcs_[fi_++]));
+    while (fi_ < funcs_.size()) {
+      auto row = frame_for_func(be_, funcs_[fi_++]);
       if (row) {
         cur_ = std::move(*row);
         return true;
