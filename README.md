@@ -256,6 +256,12 @@ The library retains these backends for embedding and testing:
 | `LibrBackend` | `core_r2xsql` and C++ consumers (`open_libr`) | Uses radare2 in-process; the plugin wraps its host core. |
 | `MockBackend`   | embedding/tests | Canned `{command → response}` map, records issued commands — no live radare2. |
 
+The in-process backend reads analysis, flags, symbols, binary metadata, IO maps,
+write caches, types, and runtime catalogs through native libr APIs. The command
+producers remain available to r2pipe and mock backends. Instruction/operand text
+rendering and byte/ROP searches still use radare2's command handlers to preserve
+their rendering, search configuration, and hit behavior.
+
 ## Skills (Claude Code / Codex)
 
 Agent skills teach Claude Code and Codex to drive `r2xsql`: query and annotate
