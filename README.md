@@ -7,14 +7,14 @@ by [`libxsql`](https://github.com/0xeb/libxsql).
 
 ```sql
 SELECT name, size FROM funcs WHERE name LIKE 'main%';
-SELECT text     FROM strings WHERE text LIKE '%password%';
+SELECT content  FROM strings WHERE content LIKE '%password%';
 UPDATE comments SET text = 'reviewed' WHERE addr = 0x1234;
 ```
 
 `r2xsql` exposes radare2's analysis state as live SQL virtual tables: every
-query re-issues the JSON form of the relevant r2 command (`aflj`, `izj`,
-`axtj`, …) against an in-process core (`r_core_cmd_str`) or a spawned
-`radare2 -q0` pipe — no flat dump, no stale snapshot.
+query reads native analysis data or the JSON form of the relevant r2 command
+(`aflj`, `izj`, `axtj`, …) from an in-process core or a spawned `radare2 -q0`
+pipe. Most live tables cache rows only for the duration of a query.
 
 ## It's not read-only — and your work saves
 
@@ -198,11 +198,13 @@ Quote the **whole r2 command**, escape any SQL double quotes, then URL-encode
 it for GET; POST sends the quoted command as the raw body. URL encoding alone
 does not protect SQL operators such as `>` and `|` from r2's command parser.
 Prefer POST for longer SQL to avoid r2's request-line length limit.
-Each request executes one SQL statement; the session
-persists between requests, including analysis and comment changes.
+`sql` executes one statement; `sqlj` executes a script and returns a JSON
+envelope. The session persists between requests, including analysis and
+comment changes.
 
-Responses are the plugin's text tables, including the row count. SQL errors
-appear as `ERROR: ...` in the body, even with HTTP status 200. The old
+Responses are native tables for `sql`, with no added row-count footer, or JSON
+for `sqlj`. SQL errors can arrive with HTTP status 200: check `ERROR: ...` in
+table output or `success` and per-statement errors in the JSON envelope. The old
 `sql.http*` and `/query` interface is removed;
 configure the native server with r2's `http.*` settings instead.
 
@@ -230,7 +232,6 @@ The library retains these backends for embedding and testing:
 | `R2PipeBackend` | C++ consumers (`open_r2pipe`) | Spawns and manages `radare2 -q0` over stdio. |
 | `LibrBackend` | `core_r2xsql` and C++ consumers (`open_libr`) | Uses radare2 in-process; the plugin wraps its host core. |
 | `MockBackend`   | embedding/tests | Canned `{command → response}` map, records issued commands — no live radare2. |
-| `MockBackend`   | In-memory mock: canned command→response map, records issued commands — for embedding/offline use without a live radare2. |
 
 ## Skills (Claude Code / Codex)
 
