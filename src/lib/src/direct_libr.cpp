@@ -16,6 +16,7 @@
 // emitter it mirrors and the specific quirk it reproduces.
 
 #include "direct.hpp"
+#include <nlohmann/json.hpp>
 
 #include <r_core.h>
 
@@ -271,6 +272,176 @@ class LibrApi : public Api {
     });
     r_list_free(entries);
     free(path);
+  }
+
+  std::string engine_version() override {
+    std::string version = r_core_version();
+    return version.substr(0, version.find('-'));
+  }
+
+  std::string file_path() override {
+    std::lock_guard lock(mu_);
+    if (!core_ || !core_->bin || !core_->io) return {};
+    RBinInfo* info = r_bin_get_info(core_->bin);
+    RIODesc* desc = r_io_desc_get(core_->io, r_io_fd_get_current(core_->io));
+    const char* path = info ? info->file : (desc ? desc->name : nullptr);
+    if (!path && desc) path = desc->uri;
+    return path ? path : "";
+  }
+
+  bool entry_address(int64_t& out) override {
+    std::lock_guard lock(mu_);
+    if (!core_ || !core_->bin) return false;
+    const RList* entries = r_bin_get_entries(core_->bin);
+    if (!entries) return false;
+    for (RListIter* it = entries->head; it; it = it->n) {
+      auto* e = static_cast<RBinAddr*>(it->data);
+      if (!e || e->type != R_BIN_ENTRY_TYPE_PROGRAM) continue;
+      out = r_config_get_b(core_->config, "io.va") && e->paddr != UT64_MAX
+          ? r_bin_get_vaddr(core_->bin, e->paddr, e->vaddr) : e->paddr;
+      return true;
+    }
+    return false;
+  }
+
+  void binary_info(std::vector<BinaryRow>& out) override {
+    std::lock_guard lock(mu_);
+    if (!core_ || !core_->bin) return;
+    RBinInfo* info = r_bin_get_info(core_->bin);
+    RBinFile* file = r_bin_cur(core_->bin);
+    RBinObject* obj = r_bin_cur_object(core_->bin);
+    if (!info || !file || !obj) return;
+    auto str = [&](const char* key, const char* value) {
+      out.push_back({key, value ? value : "", "string"});
+    };
+    auto boolean = [&](const char* key, bool value) {
+      out.push_back({key, value ? "true" : "false", "bool"});
+    };
+    auto number = [&](const char* key, ut64 value) {
+      if (value < UT64_MAX - 1) out.push_back({key, std::to_string(value), "int"});
+    };
+    bool havecode = info->arch || obj->entries;
+    RBinSection* section;
+    R_VEC_FOREACH(&obj->sections_vec, section) havecode |= (section->perm & R_PERM_X) != 0;
+    int bits = info->bits;
+    if (bits < 1) bits = r_config_get_i(core_->config, "asm.bits");
+    if (bits < 1) bits = R_SYS_BITS;
+    Sdb* file_info = sdb_ns(file->sdb, "info", false);
+    const bool pe = info->rclass && !strcmp(info->rclass, "pe");
+    const bool mdmp = info->rclass && !strcmp(info->rclass, "mdmp");
+    str("arch", info->arch);
+    if (R_STR_ISNOTEMPTY(info->cpu)) str("cpu", info->cpu);
+    number("baddr", r_bin_get_baddr(core_->bin));
+    number("binsz", r_bin_get_size(core_->bin));
+    str("bintype", info->rclass);
+    if (R_STR_ISNOTEMPTY(info->charset)) str("charset", info->charset);
+    number("bits", bits);
+    boolean("canary", info->has_canary);
+    if (info->has_nobtcfi) boolean("nobtcfi", true);
+    if (info->dbglink) str("dbglink", info->dbglink);
+    boolean("injprot", info->has_libinjprot);
+    if (info->has_retguard != -1) boolean("retguard", info->has_retguard);
+    str("class", info->bclass);
+    if (info->actual_checksum) str("cmp.csum", info->actual_checksum);
+    str("compiled", file_info ? sdb_const_get(file_info, "image_file_header.TimeDateStamp_string", nullptr) : nullptr);
+    str("compiler", info->compiler);
+    const char* flags = mdmp ? sdb_const_get(file->sdb, "mdmp.flags", nullptr) : nullptr;
+    if (!flags) flags = info->flags;
+    if (R_STR_ISNOTEMPTY(flags)) str("flags", flags);
+    if (R_STR_ISNOTEMPTY(info->abi)) str("abi", info->abi);
+    boolean("crypto", info->has_crypto);
+    str("dbg_file", info->debug_file_name);
+    str("endian", info->big_endian ? "big" : "little");
+    boolean("havecode", havecode);
+    if (havecode) {
+      if (info->claimed_checksum) str("hdr.csum", info->claimed_checksum);
+      str("guid", info->guid);
+      str("intrp", info->intrp);
+      number("laddr", r_bin_get_laddr(core_->bin));
+      if (info->lang && *info->lang != '?') str("lang", info->lang);
+      boolean("linenum", info->dbg_info & R_BIN_DBG_LINENUMS);
+      boolean("lsyms", info->dbg_info & R_BIN_DBG_SYMS);
+      str("machine", info->machine);
+      boolean("nx", info->has_nx);
+      str("os", info->os);
+      if (pe) boolean("overlay", info->pe_overlay);
+      str("cc", info->default_cc);
+      boolean("pic", info->has_pi);
+      boolean("relocs", info->dbg_info & R_BIN_DBG_RELOCS);
+      Sdb* object_info = sdb_ns(obj->kv, "info", false);
+      const char* relro = object_info ? sdb_const_get(object_info, "elf.relro", nullptr) : nullptr;
+      if (R_STR_ISNOTEMPTY(relro)) str("relro", relro);
+      str("rpath", info->rpath);
+      if (pe) boolean("signed", info->signature);
+      boolean("sanitize", info->has_sanitizers);
+      boolean("static", r_list_empty(obj->libs) || (info->dbg_info & R_BIN_DBG_STATIC));
+      if (mdmp) {
+        const int streams = sdb_num_get(file->sdb, "mdmp.streams", nullptr);
+        if (streams != -1) number("streams", streams);
+      }
+      boolean("stripped", info->dbg_info & R_BIN_DBG_STRIPPED);
+      boolean("uncaps", info->dbg_info & R_BIN_DBG_UNCAPS);
+      str("subsys", info->subsystem);
+      boolean("va", info->has_va);
+    }
+    nlohmann::json checksums = nlohmann::json::object();
+    for (const auto& hash : info->sum) {
+      if (!hash.type) break;
+      checksums[hash.type] = {{"hex", hex_bytes(hash.buf, hash.len)}};
+    }
+    out.push_back({"checksums", checksums.dump(), "string"});
+  }
+
+  void relocs_scan(std::vector<RelocRow>& out) override {
+    std::lock_guard lock(mu_);
+    if (!core_ || !core_->bin) return;
+    RIODesc* desc = r_io_desc_get(core_->io, r_io_fd_get_current(core_->io));
+    if (desc && r_io_desc_is_dbg(desc)) return;
+    RVecRBinReloc* relocs = r_bin_get_relocs(core_->bin);
+    // `irj` applies pending relocations when requested, including the IO
+    // cache/overlay routing used for relocatable object files.
+    const bool apply = r_config_get_b(core_->config, "bin.relocs.apply");
+    const bool cache = r_config_get_b(core_->config, "bin.cache");
+    if ((apply || cache) && core_->bin->cur) {
+      if (cache) {
+        if (!(core_->io->cachemode & R_PERM_W)) r_config_set_b(core_->config, "io.cache", true);
+        core_->bin->iob.overlay_write_at = apply ? r_io_cache_write_at : r_io_write_at;
+      }
+      relocs = r_bin_patch_relocs(core_->bin->cur);
+      if (apply) {
+        if (cache) core_->bin->iob.overlay_write_at = r_io_vwrite_to_overlay_at;
+        else r_io_drain_overlay(core_->io);
+      }
+    }
+    if (!relocs) return;
+    const char* lang = r_config_get(core_->config, "bin.lang");
+    const bool keep_lib = r_config_get_b(core_->config, "bin.demangle.pfxlib");
+    RBinReloc* reloc;
+    R_VEC_FOREACH(relocs, reloc) {
+      RelocRow r;
+      r.addr = reloc->vaddr;
+      r.paddr = reloc->paddr;
+      r.ntype = reloc->ntype;
+      r.is_ifunc = reloc->is_ifunc;
+      switch (reloc->type) {
+        case 1: case 2: case 4: case 8: case 16: case 24: case 32: case 48: case 64:
+          r.type = std::string(reloc->additive ? "ADD_" : "SET_") + std::to_string(reloc->type);
+          break;
+        default: r.type = "UNKNOWN"; break;
+      }
+      const char* name = reloc->import ? r_bin_name_tostring(reloc->import->name) :
+          (reloc->symbol ? r_bin_name_tostring(reloc->symbol->name) : nullptr);
+      if (R_STR_ISNOTEMPTY(name)) {
+        r.name = name;
+        const ut64 addr = reloc->paddr == UT64_MAX ? reloc->paddr :
+            r_bin_get_vaddr(core_->bin, reloc->paddr, reloc->vaddr);
+        char* demname = r_bin_demangle(core_->bin->cur, lang, name, addr, keep_lib);
+        if (R_STR_ISNOTEMPTY(demname)) r.demname = demname;
+        free(demname);
+      }
+      if (reloc->symbol) r.sym_vaddr = reloc->symbol->vaddr;
+      out.push_back(std::move(r));
+    }
   }
 
   std::map<std::string, std::string> type_names() {
