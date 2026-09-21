@@ -1,8 +1,8 @@
 # r2xsql Agent Guide
 
 You are working with **r2xsql**, a live SQL interface over a radare2 analysis
-session. Every table is a thin view onto radare2: a query runs the relevant
-radare2 command, parses its JSON, and returns rows. Prefer SQL for structured
+session. The core plugin reads the host's analysis through native APIs or
+radare2 commands and exposes it as SQL tables. Prefer SQL for structured
 inspection; drop to raw radare2 only when the table surface cannot express the
 question.
 
@@ -34,13 +34,14 @@ the whole binary — composable in ways the raw command line cannot match.
 
 ## Query Model (live, per-query cache)
 
-**Tables are live.** Each query re-issues the underlying radare2 command(s) and
-builds its result fresh. There is **no persistent or cross-query snapshot** — a
-cache exists only for the duration of a single query. Consequences:
+Most live tables rebuild their rows for each query, through native APIs or
+radare2 commands. `calling_conventions` retains a session cache: use a fresh
+session after changing architecture if you need an updated convention catalog.
+For tables with query-scoped caches:
 
 - If analysis state changes (you rename a function, run more analysis, open a
   project), the next query reflects it immediately. No "refresh" needed.
-- Repeated identical queries each pay the radare2 round-trip again. For
+- Repeated identical queries repeat the underlying reads. For
   interactive drilling, **keep one radare2 session alive** with the in-r2 plugin.
 - Broad, unfiltered scans of per-function tables are expensive (they enumerate
   every function). **Use pushdown filters** wherever they exist.
@@ -72,6 +73,40 @@ every function.
 ---
 
 ## Using the radare2 Plugin
+
+`core_r2xsql` adds commands to the host radare2 process. The same commands work
+at its console, through r2pipe, or through radare2's HTTP command endpoint.
+Use an MCP integration that exposes radare2 commands to reach them over MCP.
+The plugin has no separate executable, server, or port.
+
+### Output formats and discovery
+
+| Command | Result |
+|---|---|
+| `sql <SQL>` | One statement, rendered as a native radare2 table |
+| `sql,<tablequery> <SQL>` | A table with formatting, sorting, filtering, or paging |
+| `sqlj <SQL>` | One or more statements in a JSON result envelope |
+
+Use `sqlj` for programmatic results. Check top-level `success` and each entry
+in `results`; a later statement's failure can follow earlier successful writes.
+SQL NULL becomes JSON `null`, while non-NULL cells are strings, including
+numeric values. Empty strings remain empty strings.
+
+`sql` follows `cfg.table.format` and `scr.utf8`. The table-query suffix ends at
+the first space or tab: `sql,:csv SELECT name, size FROM funcs`. Native table
+JSON (`sql,:json`) omits NULL and empty-string cells, so it is unsuitable when
+those distinctions matter.
+
+Use `sql?`, `sql,?`, and `sql.?` for command, table-query, and subcommand help.
+`sql.tables` and `sql.views` provide catalogs. Query `sqlite_master` for
+machine-readable discovery, including whether optional `pseudocode` exists:
+
+```text
+"sqlj SELECT name, type FROM sqlite_master ORDER BY type, name"
+```
+
+`sql.` is reserved for subcommands: `sql.SELECT 1` does not execute SQL.
+Use `sqlj <SQL>` for JSON queries; `sqlj.` is not a subcommand namespace.
 
 ### Input and provenance
 
@@ -116,10 +151,45 @@ contains operators such as `>` or `|`, and escape SQL double quotes inside it:
 "sql SELECT 9 AS \"quoted id\""
 ```
 
-For scripts, use one `sql` command per statement in a radare2 command file,
-or repeat `-c` in one invocation. Keep a persistent session for repeated queries
-so analysis and SQL state stay warm. For remote access, use the plugin through
-[radare2's HTTP server](../README.md#http-access-through-radare2).
+For a SQL script, use `sqlj` and quote the whole command so radare2 does not
+split the statements before the plugin receives them:
+
+```text
+"sqlj SELECT NULL AS missing, '' AS empty; SELECT count(*) AS n FROM funcs"
+```
+
+The script stops at the first SQL error. It is not an automatic transaction:
+earlier statements may already have changed radare2 state. Keep one session
+alive for repeated queries so analysis and SQL state stay warm. Raw radare2
+commands still need no extra prefix.
+
+### HTTP sessions and concurrency
+
+Start radare2's foreground HTTP server with the plugin loaded:
+
+```sh
+r2 -N -q -i /absolute/path/core_r2xsql.so \
+  -e http.bind=127.0.0.1 -e http.port=9090 -c aaa -c '=h' ./target
+curl --data-binary '"sqlj SELECT name, size FROM funcs WHERE size > 100 LIMIT 5"' \
+  http://127.0.0.1:9090/cmd/
+```
+
+Use the actual module path, or omit `-i` when installed. Wait until a command
+such as `?V` succeeds at `/cmd/` before sending queries, with a timeout and a
+check that the server process is still alive. Check stderr for startup errors.
+Prefer POST for long SQL; GET requires URL-encoding the already quoted command
+and is subject to the request-line length limit. POST sends the command body
+verbatim. Escape embedded SQL double quotes before wrapping the r2 command.
+
+An HTTP 200 response can contain an SQL or radare2 error. Parse `sqlj`'s JSON
+and check `success`; for raw commands also inspect their output and verify the
+resulting state. Stop the HTTP server with `=h--` through `GET /cmd/`.
+
+The host can also run `=h&` from an interactive session. It shares the same
+core, analysis, and seek state with the console. SQL locks do not coordinate
+arbitrary native commands from other clients: serialize analysis, seek, and
+write operations with your queries. Keep the server bound to a trusted local
+interface; commands act on the host session.
 
 ### Library backends
 
@@ -1990,7 +2060,7 @@ SELECT printf('0x%x', addr) AS at, bytes FROM instructions WHERE func_addr = 0x4
    cheap.
 4. **Filter on integers/addresses,** not on stringified disassembly where you
    can avoid it.
-5. **Reuse a live session.** Tables rebuild per query (no persistent cache) — for
+5. **Reuse a live session.** Most live tables rebuild per query — for
    repeated drilling, keep the radare2 session warm with the in-r2 plugin.
 6. **Materialize repeated broad scans.** If you need an unfiltered `xrefs` set
    several times in a session, snapshot it:
