@@ -77,11 +77,13 @@ inline bool resolve_func_owner(Backend* be, int64_t addr, int64_t& out) {
 
 // Scoped r2 commands accept interior addresses; SQL equality requires a start.
 inline bool func_addr_is_start(Backend* be, int64_t addr) {
+  if (auto* api = be->direct()) return api->function_is_start(addr);
   int64_t owner = 0;
   return resolve_func_owner(be, addr, owner) && owner == addr;
 }
 
-// Direct producers already check fcn->addr; command-only paths must not skip.
+// Direct producers already validate their function lookup; command-only paths
+// need the explicit start check because scoped r2 commands accept interiors.
 inline bool func_addr_pushdown_ok(Backend* be, int64_t addr) {
   return be->direct() || func_addr_is_start(be, addr);
 }
