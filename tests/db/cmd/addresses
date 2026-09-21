@@ -1,0 +1,254 @@
+# Command aliases preserve quoted SQL when applying native JSON filters.
+NAME=blocks: exact function start, interior and absent address
+FILE=malloc://1024
+ARGS=-e log.level=0 -e bin.relocs.apply=true -i build/load.r2 -a x86 -b 64
+CMDS=<<EOF
+wx 31c0ffc083f8037cf9c3
+af @ 0
+"sql,:quiet SELECT count(*) >= 1 FROM blocks WHERE func_addr=0"
+"$query=\"sqlj SELECT * FROM blocks WHERE func_addr=1\""
+$query~{results[0].rows}
+"$query=\"sqlj SELECT * FROM blocks WHERE func_addr=128\""
+$query~{results[0].rows}
+EOF
+EXPECT=<<EOF
+1
+[]
+[]
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=cfg_edges: exact function start, interior and absent address
+FILE=malloc://1024
+ARGS=-e log.level=0 -e bin.relocs.apply=true -i build/load.r2 -a x86 -b 64
+CMDS=<<EOF
+wx 31c0ffc083f8037cf9c3
+af @ 0
+"sql,:quiet SELECT count(*) >= 1 FROM cfg_edges WHERE func_addr=0"
+"$query=\"sqlj SELECT * FROM cfg_edges WHERE func_addr=1\""
+$query~{results[0].rows}
+"$query=\"sqlj SELECT * FROM cfg_edges WHERE func_addr=128\""
+$query~{results[0].rows}
+EOF
+EXPECT=<<EOF
+1
+[]
+[]
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=switch_tables: exact function start, interior and absent address
+FILE=malloc://1024
+ARGS=-e log.level=0 -e bin.relocs.apply=true -i build/load.r2 -a x86 -b 64
+CMDS=<<EOF
+wx 31c0ffc083f8037cf9c3
+af @ 0
+"sql,:quiet SELECT count(*) >= 0 FROM switch_tables WHERE func_addr=0"
+"$query=\"sqlj SELECT * FROM switch_tables WHERE func_addr=1\""
+$query~{results[0].rows}
+"$query=\"sqlj SELECT * FROM switch_tables WHERE func_addr=128\""
+$query~{results[0].rows}
+EOF
+EXPECT=<<EOF
+1
+[]
+[]
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=dominators: exact function start, interior and absent address
+FILE=malloc://1024
+ARGS=-e log.level=0 -e bin.relocs.apply=true -i build/load.r2 -a x86 -b 64
+CMDS=<<EOF
+wx 31c0ffc083f8037cf9c3
+af @ 0
+"sql,:quiet SELECT count(*) >= 1 FROM dominators WHERE func_addr=0"
+"$query=\"sqlj SELECT * FROM dominators WHERE func_addr=1\""
+$query~{results[0].rows}
+"$query=\"sqlj SELECT * FROM dominators WHERE func_addr=128\""
+$query~{results[0].rows}
+EOF
+EXPECT=<<EOF
+1
+[]
+[]
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=post_dominators: exact function start, interior and absent address
+FILE=malloc://1024
+ARGS=-e log.level=0 -e bin.relocs.apply=true -i build/load.r2 -a x86 -b 64
+CMDS=<<EOF
+wx 31c0ffc083f8037cf9c3
+af @ 0
+"sql,:quiet SELECT count(*) >= 1 FROM post_dominators WHERE func_addr=0"
+"$query=\"sqlj SELECT * FROM post_dominators WHERE func_addr=1\""
+$query~{results[0].rows}
+"$query=\"sqlj SELECT * FROM post_dominators WHERE func_addr=128\""
+$query~{results[0].rows}
+EOF
+EXPECT=<<EOF
+1
+[]
+[]
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=loops: exact function start, interior and absent address
+FILE=malloc://1024
+ARGS=-e log.level=0 -e bin.relocs.apply=true -i build/load.r2 -a x86 -b 64
+CMDS=<<EOF
+wx 31c0ffc083f8037cf9c3
+af @ 0
+"sql,:quiet SELECT count(*) >= 1 FROM loops WHERE func_addr=0"
+"$query=\"sqlj SELECT * FROM loops WHERE func_addr=1\""
+$query~{results[0].rows}
+"$query=\"sqlj SELECT * FROM loops WHERE func_addr=128\""
+$query~{results[0].rows}
+EOF
+EXPECT=<<EOF
+1
+[]
+[]
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=instructions: exact function start, interior and absent address
+FILE=malloc://1024
+ARGS=-e log.level=0 -e bin.relocs.apply=true -i build/load.r2 -a x86 -b 64
+CMDS=<<EOF
+wx 31c0ffc083f8037cf9c3
+af @ 0
+"sql,:quiet SELECT count(*) >= 1 FROM instructions WHERE func_addr=0"
+"$query=\"sqlj SELECT * FROM instructions WHERE func_addr=1\""
+$query~{results[0].rows}
+"$query=\"sqlj SELECT * FROM instructions WHERE func_addr=128\""
+$query~{results[0].rows}
+EOF
+EXPECT=<<EOF
+1
+[]
+[]
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=instruction_operands: exact function start, interior and absent address
+FILE=malloc://1024
+ARGS=-e log.level=0 -e bin.relocs.apply=true -i build/load.r2 -a x86 -b 64
+CMDS=<<EOF
+wx 31c0ffc083f8037cf9c3
+af @ 0
+"sql,:quiet SELECT count(*) >= 1 FROM instruction_operands WHERE func_addr=0"
+"$query=\"sqlj SELECT * FROM instruction_operands WHERE func_addr=1\""
+$query~{results[0].rows}
+"$query=\"sqlj SELECT * FROM instruction_operands WHERE func_addr=128\""
+$query~{results[0].rows}
+EOF
+EXPECT=<<EOF
+1
+[]
+[]
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=esil_ops: exact function start, interior and absent address
+FILE=malloc://1024
+ARGS=-e log.level=0 -e bin.relocs.apply=true -i build/load.r2 -a x86 -b 64
+CMDS=<<EOF
+wx 31c0ffc083f8037cf9c3
+af @ 0
+"sql,:quiet SELECT count(*) >= 1 FROM esil_ops WHERE func_addr=0"
+"$query=\"sqlj SELECT * FROM esil_ops WHERE func_addr=1\""
+$query~{results[0].rows}
+"$query=\"sqlj SELECT * FROM esil_ops WHERE func_addr=128\""
+$query~{results[0].rows}
+EOF
+EXPECT=<<EOF
+1
+[]
+[]
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=esil_operands: exact function start, interior and absent address
+FILE=malloc://1024
+ARGS=-e log.level=0 -e bin.relocs.apply=true -i build/load.r2 -a x86 -b 64
+CMDS=<<EOF
+wx 31c0ffc083f8037cf9c3
+af @ 0
+"sql,:quiet SELECT count(*) >= 1 FROM esil_operands WHERE func_addr=0"
+"$query=\"sqlj SELECT * FROM esil_operands WHERE func_addr=1\""
+$query~{results[0].rows}
+"$query=\"sqlj SELECT * FROM esil_operands WHERE func_addr=128\""
+$query~{results[0].rows}
+EOF
+EXPECT=<<EOF
+1
+[]
+[]
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=function_frames: exact function start, interior and absent address
+FILE=malloc://1024
+ARGS=-e log.level=0 -e bin.relocs.apply=true -i build/load.r2 -a x86 -b 64
+CMDS=<<EOF
+wx 31c0ffc083f8037cf9c3
+af @ 0
+"sql,:quiet SELECT count(*) >= 1 FROM function_frames WHERE func_addr=0"
+"$query=\"sqlj SELECT * FROM function_frames WHERE func_addr=1\""
+$query~{results[0].rows}
+"$query=\"sqlj SELECT * FROM function_frames WHERE func_addr=128\""
+$query~{results[0].rows}
+EOF
+EXPECT=<<EOF
+1
+[]
+[]
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=Native calling convention data
+FILE=malloc://1024
+ARGS=-e log.level=0 -e bin.relocs.apply=true -i build/load.r2 -a x86 -b 64
+CMDS=<<EOF
+wx c3
+af @ 0
+"sql,:quiet SELECT calltype FROM funcs WHERE addr=0"
+EOF
+EXPECT=<<EOF
+amd64
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=pseudocode: exact function start, interior and absent address
+FILE=malloc://1024
+ARGS=-e log.level=0 -e bin.relocs.apply=true -i build/load.r2 -a x86 -b 64
+CMDS=<<EOF
+wx 31c0ffc083f8037cf9c3
+af @ 0
+"sql,:quiet SELECT count(*) >= 1 FROM pseudocode WHERE func_addr=0"
+"$query=\"sqlj SELECT * FROM pseudocode WHERE func_addr=1\""
+$query~{results[0].rows}
+"$query=\"sqlj SELECT * FROM pseudocode WHERE func_addr=128\""
+$query~{results[0].rows}
+EOF
+EXPECT=<<EOF
+1
+[]
+[]
+EOF
+EXPECT_ERR=
+RUN

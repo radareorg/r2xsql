@@ -1,0 +1,147 @@
+# Command aliases preserve quoted SQL when applying native JSON filters.
+NAME=Analyzed fixture tables and views
+FILE=build/fixture.bin
+ARGS=-e log.level=0 -e bin.relocs.apply=true -i build/load.r2
+CMDS=<<EOF
+aa
+"sql,:quiet SELECT count(*) > 0 FROM funcs"
+"sql,:quiet SELECT count(*) > 0 FROM funcs WHERE name LIKE '%main%'"
+"sql,:quiet SELECT count(*) > 0 FROM strings WHERE content LIKE '%r2xsql_test_marker_string%'"
+"sql,:quiet SELECT count(*) > 0 FROM xrefs"
+"sql,:quiet SELECT count(*) > 0 FROM sections WHERE name LIKE '%text%'"
+"sql,:quiet SELECT count(*) > 0 FROM (SELECT prototype FROM funcs WHERE name LIKE '%main%')"
+"sql,:quiet SELECT count(*) > 0 FROM funcs WHERE addr <= (SELECT addr FROM funcs WHERE name LIKE '%main%' LIMIT 1) AND end_addr > (SELECT addr FROM funcs WHERE name LIKE '%main%' LIMIT 1)"
+"sql,:quiet SELECT count(*) > 0 AND min(length(disasm)>0) FROM instructions WHERE func_addr=(SELECT addr FROM funcs WHERE name LIKE '%main%' LIMIT 1)"
+"sql,:quiet SELECT count(*) > 0 FROM names"
+"sql,:quiet SELECT count(*) = 2 FROM sqlite_master WHERE name IN ('funcs','callers')"
+"sql,:quiet SELECT count(*) > 0 FROM grep WHERE pattern='main'"
+EOF
+EXPECT=<<EOF
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=Native types, removed wrappers and REGEXP
+FILE=malloc://1024
+ARGS=-e log.level=0 -e bin.relocs.apply=true -i build/load.r2
+CMDS=<<EOF
+"td struct R2xsqlPt { int a; int b; };"
+"sql,:quiet SELECT name,kind FROM types WHERE name='R2xsqlPt'"
+"sql,:quiet SELECT member_name FROM types_members WHERE type_name='R2xsqlPt' ORDER BY member_name"
+"sql,:quiet SELECT count(*) FROM pragma_function_list WHERE name IN ('r2xsql_project_save','r2xsql_project_open','r2xsql_type_define')"
+"sql,:quiet SELECT 'abc' REGEXP '^a'"
+"$query=\"sqlj INSERT INTO types(name,kind) VALUES('EmptyNative','struct'); DELETE FROM types WHERE name='EmptyNative'; SELECT name FROM types WHERE name='EmptyNative'\""
+$query~{results[2].rows}
+EOF
+EXPECT=<<EOF
+R2xsqlPt struct
+a
+b
+0
+1
+[]
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=Comments CRUD and command injection
+FILE=malloc://1024
+ARGS=-e log.level=0 -e bin.relocs.apply=true -i build/load.r2
+CMDS=<<EOF
+"$query=\"sqlj INSERT INTO comments(addr,text) VALUES(0,'x; f INJ_FLAG @ 0x1000'); SELECT text FROM comments WHERE addr=0\""
+$query~{results[1].rows}
+"sql,:quiet SELECT count(*) FROM flags WHERE name='INJ_FLAG'"
+"$query=\"sqlj UPDATE comments SET text='updated' WHERE addr=0; SELECT text FROM comments WHERE addr=0\""
+$query~{results[1].rows}
+"$query=\"sqlj DELETE FROM comments WHERE addr=0; SELECT text FROM comments WHERE addr=0\""
+$query~{results[1].rows}
+EOF
+EXPECT=<<EOF
+[["x; f INJ_FLAG @ 0x1000"]]
+0
+[["updated"]]
+[]
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=Flag self rename, rename and collision preserve state
+FILE=malloc://1024
+ARGS=-e log.level=0 -e bin.relocs.apply=true -i build/load.r2
+CMDS=<<EOF
+"$query=\"sqlj INSERT INTO flags(addr,name) VALUES(0,'flag_a'); INSERT INTO flags(addr,name) VALUES(4,'flag_b'); UPDATE flags SET name=name WHERE name='flag_a'; UPDATE flags SET name='flag_new' WHERE name='flag_a'; SELECT name FROM flags WHERE name IN ('flag_a','flag_new')\""
+$query~{results[4].rows}
+"$query=\"sqlj UPDATE flags SET name='flag_b' WHERE name='flag_new'\""
+$query~{success}
+"sql,:quiet SELECT name,addr FROM flags WHERE name IN ('flag_a','flag_new','flag_b') ORDER BY addr"
+EOF
+EXPECT=<<EOF
+[["flag_new"]]
+false
+flag_new 0
+flag_b   4
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=Live libraries, relocations and registers after target change
+FILE=build/fixture.bin
+ARGS=-e log.level=0 -e bin.relocs.apply=true -i build/load.r2 -a x86 -b 64
+CMDS=<<EOF
+"sql,:quiet SELECT count(*) > 0 FROM libs"
+"sql,:quiet SELECT count(*) > 0 FROM relocs"
+"sql,:quiet SELECT DISTINCT bits FROM registers"
+o-- malloc://1024
+e asm.bits=32
+"sql,:quiet SELECT count(*) FROM libs"
+"sql,:quiet SELECT count(*) FROM relocs"
+"sql,:quiet SELECT DISTINCT bits FROM registers"
+EOF
+EXPECT=<<EOF
+1
+1
+64
+0
+0
+32
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=Catalogs include and remove user tables and views
+FILE=malloc://1024
+ARGS=-e log.level=0 -e bin.relocs.apply=true -i build/load.r2
+CMDS=<<EOF
+"$query=\"sqlj CREATE TABLE catalog_table(n); CREATE VIEW catalog_view AS SELECT 1 AS n\""
+$query~{success}
+e cfg.table.format=tsv
+sql.tables~catalog_table
+sql.tables?~catalog_table
+sql.views~catalog_view
+sql.views?~catalog_view
+"$query=\"sqlj DROP VIEW catalog_view; DROP TABLE catalog_table\""
+$query~{success}
+sql.tables~catalog_table
+sql.views~catalog_view
+EOF
+EXPECT=<<EOF
+true
+catalog_table
+catalog_table
+catalog_view
+catalog_view
+true
+EOF
+EXPECT_ERR=
+RUN

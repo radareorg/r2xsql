@@ -13,7 +13,7 @@
 #   make               build build-make/core_r2xsql.$(R2_LIBEXT)
 #   make user-install  install into the per-user plugin dir (no root)
 #   make install       install system-wide (R2_LIBR_PLUGINS)
-#   make test          build, then load the plugin in r2 and run one SQL query
+#   make test          build, then run the r2r regression suite
 #   make clean
 #
 # Requires: a C++20 compiler, radare2 with pkg-config (`pkg-config r_core`),
@@ -22,6 +22,7 @@
 # The radare2 driver. Most installs expose both `r2` and `radare2`; override
 # with `make R2=radare2` if only the long name is on PATH.
 R2?=r2
+R2R?=r2r
 R2_LIBEXT=$(shell $(R2) -H R2_LIBEXT)
 R2_USER_PLUGINS=$(shell $(R2) -H R2_USER_PLUGINS)
 R2_LIBR_PLUGINS=$(shell $(R2) -H R2_LIBR_PLUGINS)
@@ -83,6 +84,9 @@ OBJS=$(SQLITE_OBJ) $(XSQL_OBJS) $(R2XSQL_OBJS) $(PLUGIN_OBJ)
 all: $(PLUGIN)
 
 -include $(BUILD)/libxsql.mk
+-include $(OBJS:.o=.d)
+
+.DELETE_ON_ERROR:
 
 # libxsql fetch (only if the sibling is absent and we redirected into build-make)
 $(LIBXSQL_DIR)/CMakeLists.txt:
@@ -93,21 +97,22 @@ $(BUILD)/libxsql.mk: $(LIBXSQL_DIR)/CMakeLists.txt
 	@mkdir -p $(dir $@)
 	@touch $@
 
-$(BUILD)/obj/sqlite/sqlite3.o: $(LIBXSQL_DIR)/external/sqlite/sqlite3.c | $(LIBXSQL_DIR)/CMakeLists.txt
+# Rebuild legacy objects without .d files when this Makefile is updated.
+$(BUILD)/obj/sqlite/sqlite3.o: $(LIBXSQL_DIR)/external/sqlite/sqlite3.c Makefile | $(LIBXSQL_DIR)/CMakeLists.txt
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
-$(BUILD)/obj/xsql/%.o: $(LIBXSQL_DIR)/src/%.cpp | $(LIBXSQL_DIR)/CMakeLists.txt
+$(BUILD)/obj/xsql/%.o: $(LIBXSQL_DIR)/src/%.cpp Makefile | $(LIBXSQL_DIR)/CMakeLists.txt
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
 
-$(BUILD)/obj/r2xsql/%.o: src/lib/src/%.cpp
+$(BUILD)/obj/r2xsql/%.o: src/lib/src/%.cpp Makefile
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
 
-$(BUILD)/obj/plugin/core_r2xsql.o: src/plugin/core_r2xsql.cpp
+$(BUILD)/obj/plugin/core_r2xsql.o: src/plugin/core_r2xsql.cpp Makefile
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
 
 $(PLUGIN): $(OBJS)
 	$(CXX) -shared -o $@ $(OBJS) $(LDFLAGS)
@@ -132,10 +137,9 @@ user-install:
 user-uninstall:
 	$(MAKE) uninstall PLUGDIR="$(R2_USER_PLUGINS)"
 
-# Smoke test: load the freshly built plugin and run one query.
+# Check output as well as process status: r2 can exit 0 after an SQL exception.
 test: $(PLUGIN)
-	@echo "=== loading core_r2xsql and running a SQL query ==="
-	$(R2) -i "$(CWD)/$(PLUGIN)" -qc 'aa; sql SELECT count(*) AS n FROM funcs' -- /bin/ls
+	$(MAKE) -C tests R2="$(R2)" R2R="$(R2R)" R2XSQL_PLUGIN="$(abspath $(PLUGIN))"
 
 clean:
 	rm -rf $(BUILD)/obj $(PLUGIN)

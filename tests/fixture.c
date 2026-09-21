@@ -8,7 +8,7 @@
  * named functions (one calling another, so xrefs/callers/callees are
  * non-empty) plus a unique string marker, so the tests in this directory
  * have stable, predictable data to assert against. Portable C (no libc
- * beyond stdio/string), built at test time by test_support.py.
+ * beyond stdio/string), built at test time by the tests Makefile.
  */
 
 #include <stdio.h>

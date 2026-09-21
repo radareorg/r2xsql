@@ -215,18 +215,36 @@ configure the native server with r2's `http.*` settings instead.
 
 ## Tests
 
-After building the plugin, with radare2 and a C compiler on `PATH`:
+Run the regression suite with radare2, `r2r`, a C compiler and Python 3 on
+`PATH` (Python's standard library is used only for the HTTP transport test):
 
 ```sh
-python3 -m pip install pytest
-python3 -m pytest -q tests
+make test
 ```
 
-The tests load the plugin directly into radare2 and cover the SQL surface and
-native HTTP integration (GET and POST). They find `core_r2xsql` in `build/`,
-`build-make/`, `build-meson/`, or `out/`. Set `R2XSQL_PLUGIN` for other layouts
-and `R2_BIN` to choose the matching radare2 executable. A missing plugin fails
-the test run instead of silently skipping coverage.
+This builds the plugin and runs the r2r database in `tests/db`. Each test loads
+the exact build explicitly, ignoring installed user plugins, and checks its
+output; SQL exceptions fail the suite even when radare2 exits successfully.
+The fixture is compiled locally, with no downloaded test binaries or pytest.
+
+To test an existing CMake/Meson build, or select matching radare2 tools:
+
+```sh
+make -C tests R2XSQL_PLUGIN=/absolute/path/core_r2xsql.so R2=/path/to/r2 R2R=/path/to/r2r
+# Only command tests (no Python needed):
+make -C tests TESTS=db/cmd
+```
+
+`R2R_ARGS` accepts r2r options (default `-L`); for example, `R2R_ARGS=-i` enables
+interactive failure review. One small standard-library helper retains real
+HTTP GET/POST coverage, including server startup and shutdown; r2r checks its
+result alongside the command tests.
+
+The Make build tracks header dependencies. This prevents stale adapters after
+C++ interface changes, which could previously cause `std::bad_alloc` during
+`make test`. After updating this Makefile, existing objects are rebuilt once
+to establish dependency files. For older checkouts, `make clean && make test`
+clears those stale objects.
 
 ## Backends (internal detail)
 
