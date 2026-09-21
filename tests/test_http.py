@@ -23,7 +23,7 @@ def test_r2_http(r2_bin, r2xsql_plugin, fixture_binary, tmp_path, post):
             return response.read().decode()
 
     def sql(text):
-        return command('"sql ' + text.replace('"', '\\"') + '"')
+        return command('"sql,:tsv ' + text.replace('"', '\\"') + '"')
 
     log_path = tmp_path / "r2-http.log"
     with log_path.open("w") as log:
@@ -44,21 +44,23 @@ def test_r2_http(r2_bin, r2xsql_plugin, fixture_binary, tmp_path, post):
                     time.sleep(0.05)
 
             assert "sql <SQL>" in command("sql?"), log_path.read_text()
+            assert ":csv" in command("sql,?")
             assert int(sql("SELECT count(*) AS n FROM funcs").splitlines()[1]) > 0
             literal = "a|b;?e INJECTED & # % + ? @ café" + ("x" * 4096 if post else "")
+            rendered_literal = literal.replace("é", r"\xc3\xa9")
             assert sql(f"SELECT 7 > 3 AS comparison, 1 | 2 AS bits, '{literal}' AS literal") == (
-                f"comparison\tbits\tliteral\n1\t3\t{literal}\n(1 rows)\n")
-            assert sql('SELECT 9 AS "quoted id"') == "quoted id\n9\n(1 rows)\n"
+                f"comparison\tbits\tliteral\n1\t3\t{rendered_literal}\n")
+            assert sql('SELECT 9 AS "quoted id"') == "quoted id\n9\n"
             payload = "x; f R2XSQL_HTTP_INJECTED @ 0x1000 | > < & # % + ?"
             assert "ERROR:" not in sql(f"INSERT INTO comments(addr,text) VALUES(0, '{payload}')")
-            assert sql("SELECT text FROM comments WHERE addr=0") == f"text\n{payload}\n(1 rows)\n"
-            assert sql("SELECT count(*) AS n FROM flags WHERE name='R2XSQL_HTTP_INJECTED'") == "n\n0\n(1 rows)\n"
+            assert sql("SELECT text FROM comments WHERE addr=0") == f"text\n{payload}\n"
+            assert sql("SELECT count(*) AS n FROM flags WHERE name='R2XSQL_HTTP_INJECTED'") == "n\n0\n"
             assert "ERROR:" not in sql("UPDATE comments SET text='updated' WHERE addr=0")
-            assert sql("SELECT text FROM comments WHERE addr=0") == "text\nupdated\n(1 rows)\n"
+            assert sql("SELECT text FROM comments WHERE addr=0") == "text\nupdated\n"
             assert "ERROR:" not in sql("DELETE FROM comments WHERE addr=0")
-            assert sql("SELECT count(*) AS n FROM comments WHERE addr=0") == "n\n0\n(1 rows)\n"
+            assert sql("SELECT count(*) AS n FROM comments WHERE addr=0") == "n\n0\n"
             assert sql("SELECT * FROM nonexistent_table").startswith("ERROR:")
-            assert sql("SELECT 42 AS alive") == "alive\n42\n(1 rows)\n"
+            assert sql("SELECT 42 AS alive") == "alive\n42\n"
             assert "sql.http" not in command("sql.?")
             for removed in ("sql.http", "sql.http?", "sql.http-"):
                 assert f"Unknown sql subcommand: {removed}" in command(removed)

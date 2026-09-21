@@ -7,7 +7,6 @@ through radare2. Build r2xsql first; the fixture only needs a C compiler.
 from __future__ import annotations
 
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -128,12 +127,14 @@ class R2xsqlRunner:
         if write:
             cmd.append("-w")
         for sql in statements:
-            cmd.extend(["-c", '"sql ' + sql.replace('"', '\\"') + '"'])
+            cmd.extend(["-c", "?e R2XSQL_RESULT_BEGIN",
+                        "-c", '"sql,:tsv ' + sql.replace('"', '\\"') + '"'])
+        cmd.extend(["-c", "?e R2XSQL_RESULT_END"])
         cmd.append(str(self.fixture_path))
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         errors = [line for line in proc.stdout.splitlines()
                   if line.startswith(("ERROR:", "EXCEPTION:"))]
-        completed = re.search(r"(?m)^\(\d+ rows\)\s*\Z", proc.stdout)
+        completed = proc.stdout.rstrip().endswith("R2XSQL_RESULT_END")
         columns, rows = _parse_tab_block(proc.stdout)
         return QueryResult(
             returncode=proc.returncode or int(bool(errors) or not completed),
@@ -145,11 +146,11 @@ class R2xsqlRunner:
 
 
 def _parse_tab_block(text: str) -> tuple[list[str], list[list[str]]]:
-    # Every plugin result ends with a row count; use the last completed table.
-    blocks = re.split(r"(?m)^\(\d+ rows\)\r?$", text)
-    if len(blocks) < 2:
+    # Result markers delimit the last TSV table, including an empty write result.
+    _, found, table = text.rpartition("R2XSQL_RESULT_BEGIN\n")
+    if not found:
         return [], []
-    lines = blocks[-2].strip("\r\n").splitlines()
+    lines = table.removesuffix("R2XSQL_RESULT_END\n").strip("\r\n").splitlines()
     if not lines:
         return [], []
     return lines[0].split("\t"), [line.split("\t") for line in lines[1:]]
