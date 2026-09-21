@@ -24,7 +24,7 @@ void register_sections_table(Session& s) {
   auto def = xsql::cached_table<SectionRow>("sections")
     .no_shared_cache()
     .estimate_rows([be = s.backend_ptr()]() -> size_t {
-      return table_utils::quick_count(be, "iS~?", 64);
+      return table_utils::quick_count(be, direct::Collection::Sections, "iS~?", 64);
     })
     .cache_builder([be = s.backend_ptr()](std::vector<SectionRow>& rows) {
       if (auto* api = be->direct()) {

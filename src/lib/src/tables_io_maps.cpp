@@ -40,7 +40,7 @@ void register_io_maps_table(Session& s) {
   auto def = xsql::cached_table<IoMapRow>("io_maps")
     .no_shared_cache()
     .estimate_rows([be = s.backend_ptr()]() -> size_t {
-      return table_utils::quick_count(be, "om~?", 64);
+      return table_utils::quick_count(be, direct::Collection::Maps, "om~?", 64);
     })
     .cache_builder([be = s.backend_ptr()](std::vector<IoMapRow>& rows) {
       if (auto* api = be->direct()) {

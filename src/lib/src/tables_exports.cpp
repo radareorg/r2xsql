@@ -58,8 +58,8 @@ void register_exports_table(Session& s) {
   auto def = xsql::cached_table<EntryRow>("entries")
     .no_shared_cache()
     .estimate_rows([be = s.backend_ptr()]() -> size_t {
-      return table_utils::quick_count(be, "ie~?", 16) +
-             table_utils::quick_count(be, "iE~?", 256);
+      return table_utils::quick_count(be, direct::Collection::Entries, "ie~?", 16) +
+             table_utils::quick_count(be, direct::Collection::Exports, "iE~?", 256);
     })
     .cache_builder([be = s.backend_ptr()](std::vector<EntryRow>& rows) {
       if (auto* api = be->direct()) {

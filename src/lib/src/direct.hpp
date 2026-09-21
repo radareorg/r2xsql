@@ -41,6 +41,8 @@
 
 namespace r2xsql::direct {
 
+enum class Collection { Functions, Flags, Imports, Entries, Exports, Strings, Sections, Segments, Maps };
+
 // radare2's xref-type vocabulary, from R_ANAL_REF_TYPE_* via
 // `r_anal_ref_type_tostring`: CALL, CODE, JUMP, ICOD, DATA, STRN, UNKN, NULL —
 // plus the empty string, which is what a zero-typed ref looks like through
@@ -502,6 +504,7 @@ struct RelocRow {
 class Api {
  public:
   virtual ~Api() = default;
+  virtual size_t estimate_count(Collection collection) = 0;
   virtual void binary_info(std::vector<BinaryRow>& out) = 0;
   virtual std::string file_path() = 0;
   virtual std::string engine_version() = 0;

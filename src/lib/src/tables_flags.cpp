@@ -148,7 +148,7 @@ void register_flags_table(Session& s) {
   auto def = xsql::cached_table<FlagRow>("flags")
     .no_shared_cache()
     .estimate_rows([be = s.backend_ptr()]() -> size_t {
-      return table_utils::quick_count(be, "fj~?", 4096);
+      return table_utils::quick_count(be, direct::Collection::Flags, "fj~?", 4096);
     })
     .cache_builder([be = s.backend_ptr()](std::vector<FlagRow>& rows) {
       if (auto* api = be->direct()) {
