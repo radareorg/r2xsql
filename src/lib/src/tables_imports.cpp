@@ -29,7 +29,7 @@ void register_imports_table(Session& s) {
   auto def = xsql::cached_table<ImportRow>("imports")
     .no_shared_cache()
     .estimate_rows([be = s.backend_ptr()]() -> size_t {
-      return table_utils::quick_count(be, "ii~?", 256);
+      return table_utils::quick_count(be, direct::Collection::Imports, "ii~?", 256);
     })
     .cache_builder([be = s.backend_ptr()](std::vector<ImportRow>& rows) {
       if (auto* api = be->direct()) {

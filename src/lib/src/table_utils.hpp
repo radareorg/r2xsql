@@ -103,8 +103,10 @@ inline bool func_addr_pushdown_ok(Backend* be, int64_t addr) {
   return be->direct() || func_addr_is_start(be, addr);
 }
 
-inline size_t quick_count(Backend* be, std::string_view command, size_t fallback) {
+inline size_t quick_count(Backend* be, direct::Collection collection,
+                          std::string_view command, size_t fallback) {
   if (!be) return fallback;
+  if (auto* api = be->direct()) return api->estimate_count(collection);
   std::string out = trim_ascii(be->cmd(command));
   if (out.empty()) return fallback;
   try {

@@ -187,7 +187,7 @@ void register_xrefs_table(Session& s) {
   auto def = xsql::cached_table<XrefRow>("xrefs")
     .no_shared_cache()
     .estimate_rows([be = s.backend_ptr()]() -> size_t {
-      return table_utils::quick_count(be, "afl~?", 1000) * 10;
+      return table_utils::quick_count(be, direct::Collection::Functions, "afl~?", 1000) * 10;
     })
     .cache_builder([be = s.backend_ptr()](std::vector<XrefRow>& rows) {
       xrefs_scan(be, rows);

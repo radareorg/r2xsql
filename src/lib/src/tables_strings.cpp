@@ -56,7 +56,7 @@ void register_strings_table(Session& s) {
   auto def = xsql::cached_table<StringRow>("strings")
     .no_shared_cache()
     .estimate_rows([be = s.backend_ptr()]() -> size_t {
-      return table_utils::quick_count(be, "iz~?", 1000);
+      return table_utils::quick_count(be, direct::Collection::Strings, "iz~?", 1000);
     })
     .cache_builder([be = s.backend_ptr()](std::vector<StringRow>& rows) {
       build_strings(be, rows, /*with_content=*/true);

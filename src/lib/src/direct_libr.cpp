@@ -83,6 +83,44 @@ class LibrApi : public Api {
  public:
   LibrApi(RCore* core, std::mutex& mu) : core_(core), mu_(mu) {}
 
+  size_t estimate_count(Collection collection) override {
+    std::lock_guard lock(mu_);
+    if (!core_) return 0;
+    switch (collection) {
+      case Collection::Functions: return r_list_length(core_->anal->fcns);
+      case Collection::Flags: return r_flag_count(core_->flags, nullptr);
+      case Collection::Imports: {
+        RVecRBinImport* imports = r_bin_get_imports_vec(core_->bin);
+        return imports ? RVecRBinImport_length(imports) : 0;
+      }
+      case Collection::Entries: return r_list_length(r_bin_get_entries(core_->bin));
+      case Collection::Exports: {
+        RVecRBinSymbol* symbols = r_bin_get_symbols_vec(core_->bin);
+        return symbols ? RVecRBinSymbol_length(symbols) : 0;
+      }
+      case Collection::Strings: {
+        RVecRBinString* strings = r_bin_get_strings(core_->bin);
+        return strings ? RVecRBinString_length(strings) : 0;
+      }
+      case Collection::Sections:
+      case Collection::Segments: {
+        RVecRBinSection* sections = r_bin_get_sections_vec(core_->bin);
+        if (!sections) return 0;
+        size_t count = 0;
+        RBinSection* section;
+        R_VEC_FOREACH(sections, section) {
+          if (section->is_segment == (collection == Collection::Segments)) ++count;
+        }
+        return count;
+      }
+      case Collection::Maps: {
+        RIOBank* bank = r_io_bank_get(core_->io, core_->io->bank);
+        return bank ? r_list_length(bank->maprefs) : 0;
+      }
+    }
+    return 0;
+  }
+
   bool function_is_start(int64_t addr) override {
     std::lock_guard lock(mu_);
     return core_ && core_->anal &&
