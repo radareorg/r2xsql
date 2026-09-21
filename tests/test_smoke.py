@@ -159,7 +159,7 @@ def test_schema_lists_funcs_and_callers(runner: R2xsqlRunner) -> None:
 
 
 # --- type system ---------------------------------------------------------
-# A type is defined via the r2xsql_type_define() scalar; its members live in
+# A type is defined via the native td command; its members live in
 # the `types_members` table (plural "types") -- confirmed against
 # tables_types_members.cpp.
 
@@ -167,10 +167,10 @@ def test_schema_lists_funcs_and_callers(runner: R2xsqlRunner) -> None:
 def test_type_define_and_read_back(runner: R2xsqlRunner) -> None:
     r = runner.script(
         [
-            "SELECT r2xsql_type_define('struct R2xsqlPt { int x; char name[8]; };')",
             "SELECT name, kind FROM types WHERE name = 'R2xsqlPt'",
         ],
         write=True,
+        setup_commands=['"td struct R2xsqlPt { int x; char name[8]; };"'],
     )
     assert r.ok, r.stderr
     assert r.rows and r.rows[0][0] == "R2xsqlPt" and r.rows[0][1] == "struct"
@@ -179,10 +179,10 @@ def test_type_define_and_read_back(runner: R2xsqlRunner) -> None:
 def test_type_members_populated(runner: R2xsqlRunner) -> None:
     r = runner.script(
         [
-            "SELECT r2xsql_type_define('struct R2xsqlPt2 { int a; int b; };')",
             "SELECT member_name FROM types_members WHERE type_name = 'R2xsqlPt2'",
         ],
         write=True,
+        setup_commands=['"td struct R2xsqlPt2 { int a; int b; };"'],
     )
     assert r.ok, r.stderr
     members = {row[0] for row in r.rows}
@@ -231,3 +231,15 @@ def test_comment_text_cannot_inject_a_command(runner: R2xsqlRunner) -> None:
     )
     assert r.ok, r.stderr
     assert r.rows and r.rows[-1][0] == "0", "comment text executed as an r2 command"
+
+
+def test_native_commands_replace_sql_wrappers(runner):
+    result = runner.query("SELECT name FROM pragma_function_list WHERE name IN "
+                          "('r2xsql_project_save','r2xsql_project_open','r2xsql_type_define')")
+    assert result.ok and not result.rows, result.stderr
+    result = runner.query("SELECT 'abc' REGEXP '^a' AS matches")
+    assert result.ok and result.rows == [["1"]], result.stderr
+    result = runner.script(["INSERT INTO types(name,kind) VALUES('EmptyNative','struct')",
+                            "DELETE FROM types WHERE name='EmptyNative'",
+                            "SELECT name FROM types WHERE name='EmptyNative'"])
+    assert result.ok and not result.rows, result.stderr

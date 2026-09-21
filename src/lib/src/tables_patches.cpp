@@ -371,7 +371,7 @@ void register_patches_table(Session& s) {
       }
 
       // Readback verification (same discipline as the types table's td+tk
-      // guard, and r2xsql_type_define's): a write-cache parser failure can
+      // guard): a write-cache parser failure can
       // otherwise look like a silent no-op success. Confirm the entry we
       // just staged is really there, at the address and size we asked for.
       auto rows = load_layer(be);

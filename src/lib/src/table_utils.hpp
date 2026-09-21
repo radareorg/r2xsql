@@ -69,9 +69,8 @@ inline size_t quick_count(Backend* be, std::string_view command, size_t fallback
 
 // Fixed seek anchor for structural no-eval dispatch of a command that is NOT
 // address-scoped at all -- currently only radare2's type-system commands,
-// `td`/`t-` (see tables_types.cpp's INSERT/DELETE and session.cpp's
-// r2xsql_type_define). Every previously-ported table's write had a real row
-// address to pass to `Backend::cmd_noeval`; the type system has none (a
+// `td`/`t-` (see tables_types.cpp's INSERT/DELETE). Each address-scoped
+// table write has a real row address to pass to `Backend::cmd_noeval`; the type system has none (a
 // struct/union/enum definition is not tied to any address). Verified against
 // radare2's own source rather than assumed: `cmd_type.inc.c`'s handlers for
 // both `td` (case 'd', the `input[1]==' '` branch) and `t-` (case '-') read

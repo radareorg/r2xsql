@@ -120,12 +120,15 @@ class R2xsqlRunner:
     def query(self, sql: str, *, write: bool = False) -> QueryResult:
         return self.script([sql], write=write)
 
-    def script(self, statements: list[str], *, write: bool = False) -> QueryResult:
+    def script(self, statements: list[str], *, write: bool = False,
+               setup_commands: list[str] | None = None) -> QueryResult:
         """Run statements in one session and return the last table's rows."""
         cmd = [self.r2_path, "-N", "-q", "-e", "scr.color=0",
                "-i", str(self.plugin_path), "-c", "aaa"]
         if write:
             cmd.append("-w")
+        for command in setup_commands or []:
+            cmd.extend(["-c", command])
         for sql in statements:
             cmd.extend(["-c", "?e R2XSQL_RESULT_BEGIN",
                         "-c", '"sql,:tsv ' + sql.replace('"', '\\"') + '"'])

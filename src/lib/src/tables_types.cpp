@@ -24,7 +24,7 @@
 //                     every query. Two queries in the same session agree on
 //                     a given name's ordinal ONLY while the type set is
 //                     unchanged; an intervening INSERT/DELETE (or
-//                     r2xsql_type_define) shifts the alphabetical position
+//                     `td`) shifts the alphabetical position
 //                     of every name that sorts after the change. Never
 //                     derived from any address. Both backends share this
 //                     exact producer (no direct::/C-API path exists for
@@ -48,11 +48,8 @@
 // to either one -- see `table_utils::kTypeSystemAnchorAddr` /
 // `dispatch_type_write` (table_utils.hpp) for the fixed-anchor helper this
 // uses instead of a per-row address, and the full citation. `t-`'s name
-// argument is already charset-validated (`valid_flag_name`) with no free-text
-// surface to speak of; the genuine adversarial surface for this table's
-// write family is `r2xsql_type_define`'s one-line C declaration (session.cpp),
-// which allows `;`/`{`/`}` (needed for C syntax) and dispatches through the
-// same `dispatch_type_write` helper.
+// argument is charset-validated; INSERT builds an empty declaration from
+// the validated name and kind before calling dispatch_type_write.
 
 #include <r2xsql/session.hpp>
 #include <r2xsql/backend.hpp>
@@ -149,18 +146,8 @@ void register_types_table(Session& s) {
     .column_text ("kind",   [](const TypeRow& r) { return r.kind; })
     .column_int64("size",   [](const TypeRow& r) { return r.size; })
     .column_text ("format", [](const TypeRow& r) { return r.format; })
-    // DELETE FROM types WHERE name='X' removes the type (`t- X`). A full
-    // typed declaration (members, an underlying primitive, a signature, …)
-    // doesn't fit the row columns, so that stays on the
-    // r2xsql_type_define('<C decl>') scalar function. INSERT covers only
-    // the one case that genuinely fits name+kind alone: an EMPTY
-    // struct/union/enum shell, synthesized as the equivalent one-line C
-    // declaration and routed through the same `td` command
-    // r2xsql_type_define already uses — not a second code path, just a
-    // narrower entry to the same one. atomic/typedef/func are refused: an
-    // atomic type needs a real primitive, a typedef needs a target type,
-    // and a func needs a signature, none of which a bare name+kind can
-    // supply without inventing one.
+    // SQL creates empty struct/union/enum shells and deletes types by name.
+    // Full declarations use radare2's native td command.
     .deletable([be = s.backend_ptr()](TypeRow& r) -> bool {
       if (r.name.empty() || !json_utils::valid_flag_name(r.name)) {
         xsql::set_vtab_error("types: refusing to delete an unsafe/empty type name");
@@ -200,7 +187,7 @@ void register_types_table(Session& s) {
             "types: INSERT only creates an empty struct/union/enum shell "
             "(kind must be one of those three) -- for a real type with "
             "members, an underlying primitive, or a signature, use "
-            "r2xsql_type_define('<C decl>') instead");
+            "radare2's `td <C decl>` command instead");
         return false;
       }
       const std::string decl = kind + " " + name + " {};";
@@ -218,8 +205,8 @@ void register_types_table(Session& s) {
         return false;
       }
       // A td parser failure may log only to stderr and otherwise look like
-      // a successful no-output command -- read the name back, same guard
-      // r2xsql_type_define already relies on for the same reason.
+      // a successful no-output command -- read the name back rather than
+      // trusting the silence.
       if (table_utils::trim_ascii(be->cmd("tk " + name)).empty()) {
         xsql::set_vtab_error("types: INSERT failed (name=" + name +
                              "): type was not present after td");

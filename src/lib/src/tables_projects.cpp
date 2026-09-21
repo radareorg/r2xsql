@@ -4,10 +4,8 @@
 // This file is licensed under the Human-Origin Source License v1.0.
 // See LICENSE.
 // projects — radare2 project list (`Plj`). SELECT lists saved projects;
-// DELETE FROM projects WHERE name='X' removes it on disk (`P- X`). Saving and
-// opening a project mid-session are actions, not row states, so they are
-// exposed as the r2xsql_project_save('name') / r2xsql_project_open('name')
-// scalar functions (see Session::register_functions_).
+// DELETE FROM projects WHERE name='X' removes it on disk (`P- X`).
+// Save and open projects with native `Ps <name>` and `P <name>` commands.
 
 #include <r2xsql/session.hpp>
 #include <r2xsql/backend.hpp>
