@@ -1,0 +1,28 @@
+NAME=native bookmarks preserve flagspace and distinguish colocated flags
+FILE=malloc://64
+ARGS=-e log.level=0 -i build/load.r2
+CMDS=<<CMDS
+fs other
+f other_flag 1 @ 4
+fs bookmarks
+f mark 1 @ 4
+fs other
+"sql,:quiet SELECT count(*) FROM bookmarks WHERE addr=4 AND name='mark'"
+fj~{[0].name}
+"sql,:quiet UPDATE bookmarks SET name='renamed' WHERE name='mark'"
+"sql,:quiet SELECT count(*) FROM flags WHERE name='renamed' AND space='bookmarks'"
+"sql,:quiet DELETE FROM bookmarks WHERE name='renamed'"
+"sql,:quiet SELECT count(*) FROM bookmarks"
+"sql,:quiet SELECT count(*) FROM flags WHERE name='other_flag' AND space='other'"
+fj~{[0].name}
+CMDS
+EXPECT=<<EXPECTED
+1
+other_flag
+1
+0
+1
+other_flag
+EXPECTED
+EXPECT_ERR=
+RUN

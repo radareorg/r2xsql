@@ -611,14 +611,16 @@ class LibrApi : public Api {
   // something (e.g. demangling) gives it a genuinely distinct one, so the
   // common case must read back "" here too, exactly as the command path's
   // `fj` does when the JSON key is absent.
-  void flags_scan(std::vector<FlagRow>& out) override {
+  void flags_scan(std::vector<FlagRow>& out, const char* space) override {
     std::lock_guard lock(mu_);
     if (!core_ || !core_->flags) return;
+    RSpace* selected = space ? r_flag_space_get(core_->flags, space) : nullptr;
+    if (space && !selected) return;
     struct Ctx {
       std::vector<FlagRow>* out;
     } ctx{&out};
-    r_flag_foreach(
-        core_->flags,
+    r_flag_foreach_space(
+        core_->flags, selected,
         [](RFlagItem* fi, void* user) -> bool {
           auto* c = static_cast<Ctx*>(user);
           FlagRow r;
@@ -631,6 +633,14 @@ class LibrApi : public Api {
           return true;  // never stop early -- a full scan
         },
         &ctx);
+  }
+
+  bool flag_at(const std::string& name, const std::string& space, int64_t addr) override {
+    std::lock_guard lock(mu_);
+    if (!core_ || !core_->flags) return false;
+    RFlagItem* item = r_flag_get(core_->flags, name.c_str());
+    return item && item->addr == static_cast<ut64>(addr) && item->space &&
+        space == item->space->name;
   }
 
   // Mirrors `izj` (`_print_strings`'s JSON branch, libr/core/cbin.c). That
