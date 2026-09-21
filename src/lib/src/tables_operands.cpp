@@ -205,28 +205,27 @@ std::vector<OperandRow> operands_for_func(Backend* be, int64_t fa) {
 
 // Resolve the function that contains `addr` (for the single-instruction path).
 int64_t containing_func(Backend* be, int64_t addr) {
-  auto fj = be->cmd_json("afij @ " + json_utils::hex_addr(addr));
-  if (fj.is_array() && !fj.empty()) return json_utils::i64_addr(fj[0]);
-  if (fj.is_object()) return json_utils::i64_addr(fj);
-  return 0;
+  int64_t owner = 0;
+  table_utils::resolve_func_owner(be, addr, owner);
+  return owner;
 }
 
 // Full-scan: `aflj`, then block-scoped `afbj` / `aoj` per function.
 class OperandsGen : public xsql::Generator<OperandRow> {
   Backend* be_;
-  nlohmann::json funcs_;
+  std::vector<int64_t> funcs_;
   size_t fi_ = 0;
   std::vector<OperandRow> buf_;
   size_t bi_ = 0;
   OperandRow cur_;
  public:
-  explicit OperandsGen(Backend* be) : be_(be), funcs_(be->cmd_json("aflj")) {}
+  explicit OperandsGen(Backend* be) : be_(be), funcs_(table_utils::function_starts(be)) {}
   bool next() override {
     for (;;) {
       if (bi_ < buf_.size()) { cur_ = buf_[bi_++]; return true; }
-      if (!funcs_.is_array() || fi_ >= funcs_.size()) return false;
+      if (fi_ >= funcs_.size()) return false;
       const auto& f = funcs_[fi_++];
-      buf_ = operands_for_func(be_, json_utils::i64_addr(f));
+      buf_ = operands_for_func(be_, f);
       bi_ = 0;
     }
   }

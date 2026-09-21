@@ -40,15 +40,15 @@ PseudoRow pseudo_for_func(Backend* be, const std::string& dec_cmd, int64_t fa) {
 class PseudoGen : public xsql::Generator<PseudoRow> {
   Backend* be_;
   std::string dec_cmd_;
-  nlohmann::json funcs_;
+  std::vector<int64_t> funcs_;
   size_t fi_ = 0;
   PseudoRow cur_;
  public:
   PseudoGen(Backend* be, std::string dec_cmd)
-      : be_(be), dec_cmd_(std::move(dec_cmd)), funcs_(be->cmd_json("aflj")) {}
+      : be_(be), dec_cmd_(std::move(dec_cmd)), funcs_(table_utils::function_starts(be)) {}
   bool next() override {
-    if (!funcs_.is_array() || fi_ >= funcs_.size()) return false;
-    cur_ = pseudo_for_func(be_, dec_cmd_, json_utils::i64_addr(funcs_[fi_++]));
+    if (fi_ >= funcs_.size()) return false;
+    cur_ = pseudo_for_func(be_, dec_cmd_, funcs_[fi_++]);
     return true;
   }
   const PseudoRow& current() const override { return cur_; }

@@ -399,6 +399,10 @@ class Api {
   // True only when addr is exactly a function entry. Avoids command/JSON
   // round-trips for scoped SQL pushdowns on the in-process backend.
   virtual bool function_is_start(int64_t addr) = 0;
+  virtual bool function_owner(int64_t addr, int64_t& out) = 0;
+  virtual void function_starts(std::vector<int64_t>& out) = 0;
+  virtual bool function_details(int64_t addr, bool with_prototype, FuncRow& out) = 0;
+  virtual bool calling_convention_exists(const std::string& name) = 0;
 
   // `xrefs` full scan — the command path's `aflj` + one `afxj` per function.
   virtual void xrefs_scan(std::vector<XrefRow>& out) = 0;

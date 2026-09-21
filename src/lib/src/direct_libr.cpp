@@ -88,6 +88,47 @@ class LibrApi : public Api {
         r_anal_get_function_at(core_->anal, static_cast<ut64>(addr));
   }
 
+  bool function_owner(int64_t addr, int64_t& out) override {
+    std::lock_guard lock(mu_);
+    if (!core_ || !core_->anal) return false;
+    RAnalFunction* fcn = r_anal_get_fcn_in(core_->anal, addr, R_ANAL_FCN_TYPE_NULL);
+    if (!fcn) return false;
+    out = fcn->addr;
+    return true;
+  }
+
+  void function_starts(std::vector<int64_t>& out) override {
+    std::lock_guard lock(mu_);
+    if (!core_ || !core_->anal) return;
+    for_each_rlist<RAnalFunction>(core_->anal->fcns, [&](RAnalFunction* fcn) {
+      out.push_back(fcn->addr);
+    });
+  }
+
+  bool function_details(int64_t addr, bool with_prototype, FuncRow& out) override {
+    std::lock_guard lock(mu_);
+    if (!core_ || !core_->anal) return false;
+    RAnalFunction* fcn = r_anal_get_function_at(core_->anal, addr);
+    if (!fcn) return false;
+    out.addr = fcn->addr;
+    out.stackframe = fcn->maxstack;
+    if (const char* cc = r_anal_function_cc(fcn)) out.calltype = cc;
+    if (with_prototype) {
+      if (char* sig = r_anal_function_format_sig(core_->anal, fcn, nullptr,
+                                                nullptr, nullptr, nullptr)) {
+        r_str_trim(sig);
+        out.prototype = sig;
+        free(sig);
+      }
+    }
+    return true;
+  }
+
+  bool calling_convention_exists(const std::string& name) override {
+    std::lock_guard lock(mu_);
+    return core_ && core_->anal && r_anal_cc_exist(core_->anal, name.c_str());
+  }
+
   // Mirrors the command path's `aflj` + `afxj @ <fn>` per function.
   void xrefs_scan(std::vector<XrefRow>& out) override {
     std::lock_guard lock(mu_);
@@ -138,8 +179,7 @@ class LibrApi : public Api {
   void xrefs_in_func(int64_t func_addr, std::vector<XrefRow>& out) override {
     std::lock_guard lock(mu_);
     if (!core_ || !core_->anal) return;
-    RAnalFunction* fcn =
-        r_anal_get_fcn_in(core_->anal, static_cast<ut64>(func_addr), R_ANAL_FCN_TYPE_NULL);
+    RAnalFunction* fcn = r_anal_get_function_at(core_->anal, func_addr);
     // `from_func` is a function START, so an address merely inside a function
     // matches nothing. Without this, `afxj`'s "resolve the containing function"
     // behaviour would return that function's rows under a from_func the caller
