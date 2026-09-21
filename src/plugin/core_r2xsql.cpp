@@ -26,10 +26,10 @@
 #include <r_core.h>
 #include <r_lib.h>
 
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <mutex>
-#include <sstream>
 #include <string>
 
 // r2xsql::make_libr_backend_from_core (declared in <r2xsql/backend.hpp>, included
@@ -55,7 +55,9 @@ void ensure_session(RCore* core) {
 
 static RCoreHelpMessage help_msg_sql = {
     "Usage:", "sql <SQL>", "Query radare2 data with SQL",
-    "sql", " <SQL>", "execute a single SQL statement",
+    "sql", " <SQL>", "execute a statement and print a radare2 table",
+    "sql,", "<tablequery> <SQL>", "format or filter the result with a table query",
+    "sql,?", "", "show table-query help",
     "sql?", "", "show this help",
     "sql.?", "", "show sql.* subcommands",
     "sqlj", " <SQL>", "execute statements and print a JSON result envelope",
@@ -96,34 +98,46 @@ void print_help(RCore* core, RCoreHelpMessage help = help_msg_sql) {
 #endif
 }
 
-std::string render_table(const xsql::Result& res) {
-  std::ostringstream oss;
-
-  if (!res.ok()) {
-    oss << "ERROR: " << res.error << "\n";
-    return oss.str();
+std::string render_table(RCore* core, const xsql::Result& res,
+                         const char* query) {
+  if (!res.ok()) return "ERROR: " + res.error + "\n";
+  std::unique_ptr<RTable, decltype(&r_table_free)> table(
+      r_core_table_new(core, "sql"), r_table_free);
+  if (!table) return "ERROR: cannot create table\n";
+  for (const auto& name : res.columns) {
+    r_table_add_column(table.get(), r_table_type("string"), name.c_str(), 0);
   }
-
-  // Header
-  for (size_t c = 0; c < res.columns.size(); ++c) {
-    if (c) oss << "\t";
-    oss << res.columns[c];
-  }
-  oss << "\n";
-
   for (const auto& row : res.rows) {
-    for (size_t c = 0; c < row.size(); ++c) {
-      if (c) oss << "\t";
-      oss << row[c];
+    RList* items = r_list_newf(free);
+    if (!items) return "ERROR: cannot create row\n";
+    for (const auto& value : row.values) {
+      char* cell = strdup(value.c_str());
+      if (!cell || !r_list_append(items, cell)) {
+        free(cell);
+        r_list_free(items);
+        return "ERROR: cannot create cell\n";
+      }
     }
-    oss << "\n";
+    r_table_add_row_list(table.get(), items);
   }
-  oss << "(" << res.rows.size() << " rows)\n";
-  return oss.str();
+  if (!r_table_query(table.get(), query)) return "ERROR: invalid table query\n";
+  std::unique_ptr<char, decltype(&free)> out(r_table_tostring(table.get()), free);
+  return out ? out.get() : "";
 }
 
 bool dispatch(RCore* core, const char* input) {
   if (!input) return false;
+
+  std::string table_query;
+  if (*input == ',') {
+    const char* begin = ++input;
+    while (*input && *input != ' ' && *input != '\t') ++input;
+    table_query.assign(begin, input);
+    if (table_query == "?" || table_query.ends_with(":help")) {
+      r_cons_println(core->cons, r_table_help());
+      return true;
+    }
+  }
 
   // Strip leading whitespace.
   input = r_str_trim_head_ro(input);
@@ -167,7 +181,7 @@ bool dispatch(RCore* core, const char* input) {
     std::lock_guard<std::mutex> lock(g_state.mu);
     try {
       auto res = g_state.session->query(input);
-      out = render_table(res);
+      out = render_table(core, res, table_query.c_str());
     } catch (const std::exception& e) {
       out = std::string("EXCEPTION: ") + e.what() + "\n";
     } catch (...) {
@@ -222,8 +236,8 @@ bool plugin_call(RCorePluginSession* ctx, const char* input) {
   // claim the ones that start with our prefix.
   if (std::strncmp(input, "sql", 3) != 0) return false;
   const char* rest = input + 3;
-  // Accept "sql", "sql ", "sql?", "sql.", "sql.<anything>"
-  if (*rest != '\0' && *rest != ' ' && *rest != '?' && *rest != '.') {
+  // Accept SQL, help, subcommands, and table-query suffixes.
+  if (*rest != '\0' && *rest != ' ' && *rest != '?' && *rest != '.' && *rest != ',') {
     return false;
   }
   return dispatch(ctx->core, rest);

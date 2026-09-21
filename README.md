@@ -82,6 +82,18 @@ Each `sql` command executes one statement. Quote the whole r2 command when SQL
 contains r2 operators such as `>` or `|`. Use repeated `-c` options, a radare2
 command script, or a persistent session for multiple statements.
 
+`sql` uses radare2's table renderer and honours `cfg.table.format` and
+`scr.utf8`. Add a table query immediately after the command, before the SQL:
+
+```text
+sql,:csv SELECT name, size FROM funcs
+sql,size/gt/100,:quiet SELECT name, size FROM funcs
+sql,?
+```
+
+Use `sql,:tsv` for tab-separated output. Native tables have no SQL NULL type;
+in particular, `sql,:json` omits NULL and empty-string cells.
+
 ## Build
 
 Linux / macOS:
