@@ -56,6 +56,36 @@ inline std::string command_error_text(const std::string& out) {
   return {};
 }
 
+inline bool resolve_func_owner(Backend* be, int64_t addr, int64_t& out) {
+  auto info = be->cmd_json("afij @ " + json_utils::hex_addr(addr));
+  const nlohmann::json* obj = nullptr;
+  if (info.is_array() && !info.empty() && info[0].is_object()) {
+    obj = &info[0];
+  } else if (info.is_object()) {
+    obj = &info;  // not every r2 build wraps this one in an array
+  }
+  if (!obj) return false;
+  for (const char* key : {"addr", "offset"}) {
+    auto it = obj->find(key);
+    if (it != obj->end() && it->is_number_integer()) {
+      out = it->get<int64_t>();
+      return true;
+    }
+  }
+  return false;
+}
+
+// Scoped r2 commands accept interior addresses; SQL equality requires a start.
+inline bool func_addr_is_start(Backend* be, int64_t addr) {
+  int64_t owner = 0;
+  return resolve_func_owner(be, addr, owner) && owner == addr;
+}
+
+// Direct producers already check fcn->addr; command-only paths must not skip.
+inline bool func_addr_pushdown_ok(Backend* be, int64_t addr) {
+  return be->direct() || func_addr_is_start(be, addr);
+}
+
 inline size_t quick_count(Backend* be, std::string_view command, size_t fallback) {
   if (!be) return fallback;
   std::string out = trim_ascii(be->cmd(command));

@@ -26,6 +26,7 @@
 
 #include "tables.hpp"
 #include "json_utils.hpp"
+#include "table_utils.hpp"
 
 namespace r2xsql {
 
@@ -243,8 +244,10 @@ class OperandsInFuncIterator : public xsql::RowIterator {
   size_t i_ = 0;
   bool started_ = false;
  public:
-  OperandsInFuncIterator(Backend* be, int64_t fa)
-      : rows_(operands_for_func(be, fa)) {}
+  OperandsInFuncIterator(Backend* be, int64_t fa) {
+    if (!table_utils::func_addr_is_start(be, fa)) return;
+    rows_ = operands_for_func(be, fa);
+  }
   bool next() override {
     if (!started_) started_ = true; else ++i_;
     return i_ < rows_.size();

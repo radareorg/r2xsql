@@ -51,6 +51,7 @@
 #include "tables.hpp"
 #include "direct.hpp"
 #include "json_utils.hpp"
+#include "table_utils.hpp"
 
 namespace r2xsql {
 
@@ -356,6 +357,10 @@ void register_instructions_table(Session& s) {
           if (auto* api = be->direct()) {
             return std::make_unique<InsnsInFuncIterator>(insns_for_func_api(api, fa));
           }
+        }
+        // Rendered projections use pdfj even when a direct API is available.
+        if (!table_utils::func_addr_is_start(be, fa)) {
+          return std::make_unique<InsnsInFuncIterator>(std::vector<InsnRow>{});
         }
         return std::make_unique<InsnsInFuncIterator>(insns_for_func(be, fa));
       }, 5.0, 64.0)
