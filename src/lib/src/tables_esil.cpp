@@ -312,25 +312,31 @@ void tokenize_esil(const std::string& esil, int64_t func_addr, int64_t addr, int
 // Tokenize every instruction of one function into esil_ops + esil_operands (one pdfj RPC).
 void esil_rows_for_func(Backend* be, int64_t fa,
                         std::vector<EsilOpRow>& ops, std::vector<EsilOperandRow>& operands) {
-  auto pdf = be->cmd_json("pdfj @ " + json_utils::hex_addr(fa));
-  if (!pdf.is_object()) return;
-  auto it = pdf.find("ops");
-  if (it == pdf.end() || !it->is_array()) return;
   int seq = 0;
-  for (auto& op : *it) {
-    const int64_t addr = json_utils::i64_addr(op);
-    std::string esil = json_utils::str(op, "esil");
+  auto append = [&](int64_t addr, const std::string& esil, const std::string& type) {
     if (!esil.empty()) tokenize_esil(esil, fa, addr, seq, ops, operands);
-    // Control flow is not an ESIL op — emit it from the instruction's semantic type.
-    if (const char* c = esil_control_op(json_utils::str(op, "type"))) {
+    if (const char* c = esil_control_op(type)) {
       EsilOpRow r;
       r.func_addr = fa;
       r.seq = seq++;
       r.addr = addr;
       r.op = c;
-      r.native_op = json_utils::str(op, "type");
+      r.native_op = type;
       ops.push_back(std::move(r));
     }
+  };
+  if (auto* api = be->direct()) {
+    std::vector<direct::InsnRow> instructions;
+    api->instructions_in_func(fa, instructions);
+    for (const auto& op : instructions) append(op.addr, op.esil, op.op_type);
+    return;
+  }
+  auto pdf = be->cmd_json("pdfj @ " + json_utils::hex_addr(fa));
+  if (!pdf.is_object()) return;
+  auto it = pdf.find("ops");
+  if (it == pdf.end() || !it->is_array()) return;
+  for (const auto& op : *it) {
+    append(json_utils::i64_addr(op), json_utils::str(op, "esil"), json_utils::str(op, "type"));
   }
 }
 
