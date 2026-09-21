@@ -71,25 +71,6 @@ static RCoreHelpMessage help_msg_sql_dot = {
     "sql.views", "", "list available SQL views",
     nullptr};
 
-static RCoreHelpMessage help_msg_sql_tables = {
-    "Usage:", "sql.tables", "List available SQL tables",
-    "Tables:", "", "",
-    "", "binary, blocks, bookmarks, byte_search, bytes, cfg_edges", "",
-    "", "comments, data_items, dominators, entries, esil_operands, esil_ops", "",
-    "", "flags, funcs, function_frames, grep, imports, instruction_operands", "",
-    "", "instructions, io_maps, locals, loops, post_dominators, projects", "",
-    "", "pseudocode*, runtime_settings, sections, segments, strings", "",
-    "", "switch_tables, types, types_members, xrefs", "",
-    "* pseudocode requires a decompiler plugin such as pdg, pdd, or pdc", "", "",
-    nullptr};
-
-static RCoreHelpMessage help_msg_sql_views = {
-    "Usage:", "sql.views", "List available SQL views",
-    "Views:", "", "",
-    "", "ir_maturities, ir_operands, ir_ops, ir_v_arith, ir_v_branches", "",
-    "", "ir_v_calls, ir_v_mem_reads, ir_v_mem_writes", "",
-    nullptr};
-
 void print_help(RCore* core, RCoreHelpMessage help = help_msg_sql) {
 #if R2_ABIVERSION >= 125
   r_cons_cmd_help(core->cons, help);
@@ -156,14 +137,12 @@ bool dispatch(RCore* core, const char* input) {
 
   if (std::strcmp(input, ".tables") == 0 ||
       std::strcmp(input, ".tables?") == 0) {
-    print_help(core, help_msg_sql_tables);
-    return true;
+    input = "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name";
   }
 
   if (std::strcmp(input, ".views") == 0 ||
       std::strcmp(input, ".views?") == 0) {
-    print_help(core, help_msg_sql_views);
-    return true;
+    input = "SELECT name FROM sqlite_master WHERE type = 'view' ORDER BY name";
   }
 
   if (*input == '.') {
