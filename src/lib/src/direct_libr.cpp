@@ -82,6 +82,12 @@ class LibrApi : public Api {
  public:
   LibrApi(RCore* core, std::mutex& mu) : core_(core), mu_(mu) {}
 
+  bool function_is_start(int64_t addr) override {
+    std::lock_guard lock(mu_);
+    return core_ && core_->anal &&
+        r_anal_get_function_at(core_->anal, static_cast<ut64>(addr));
+  }
+
   // Mirrors the command path's `aflj` + `afxj @ <fn>` per function.
   void xrefs_scan(std::vector<XrefRow>& out) override {
     std::lock_guard lock(mu_);
