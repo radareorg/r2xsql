@@ -21,6 +21,7 @@
 // stay warm across queries.
 
 #include <r2xsql/r2xsql.hpp>
+#include <xsql/query_script.hpp>
 
 #include <r_core.h>
 #include <r_lib.h>
@@ -57,6 +58,7 @@ static RCoreHelpMessage help_msg_sql = {
     "sql", " <SQL>", "execute a single SQL statement",
     "sql?", "", "show this help",
     "sql.?", "", "show sql.* subcommands",
+    "sqlj", " <SQL>", "execute statements and print a JSON result envelope",
     nullptr};
 
 static RCoreHelpMessage help_msg_sql_dot = {
@@ -124,7 +126,7 @@ bool dispatch(RCore* core, const char* input) {
   if (!input) return false;
 
   // Strip leading whitespace.
-  while (*input == ' ' || *input == '\t') ++input;
+  input = r_str_trim_head_ro(input);
 
   // Top-level help: `sql` or `sql?`.
   if (*input == '\0' || std::strcmp(input, "?") == 0) {
@@ -176,8 +178,46 @@ bool dispatch(RCore* core, const char* input) {
   return true;
 }
 
+bool dispatch_json(RCore* core, const char* input) {
+  input = r_str_trim_head_ro(input);
+  if (!*input || std::strcmp(input, "?") == 0) {
+    print_help(core);
+    return true;
+  }
+  std::string out;
+  try {
+    ensure_session(core);
+    std::lock_guard<std::mutex> lock(g_state.mu);
+    auto exec = [](const std::string& sql, xsql::ScriptStatementResult& result) {
+      auto res = g_state.session->query(sql);
+      result.success = res.ok();
+      result.error = res.error;
+      result.warnings = std::move(res.warnings);
+      result.timed_out = res.timed_out;
+      result.partial = res.partial;
+      result.columns = std::move(res.columns);
+      for (auto& row : res.rows) {
+        result.rows.push_back(std::move(row.values));
+        result.cell_null.push_back(std::move(row.nulls));
+      }
+    };
+    out = xsql::script_result_to_json(xsql::run_script(input, {}, exec));
+  } catch (const std::exception& e) {
+    out = xsql::json{{"success", false}, {"error", e.what()}}.dump();
+  } catch (...) {
+    out = xsql::json{{"success", false}, {"error", "unknown exception"}}.dump();
+  }
+  r_cons_println(core->cons, out.c_str());
+  return true;
+}
+
 bool plugin_call(RCorePluginSession* ctx, const char* input) {
   if (!ctx || !input) return false;
+  if (std::strncmp(input, "sqlj", 4) == 0) {
+    const char* sql = input + 4;
+    if (*sql && *sql != ' ' && *sql != '\t' && *sql != '?') return false;
+    return dispatch_json(ctx->core, sql);
+  }
   // r2 calls every registered plugin's call() for every command; only
   // claim the ones that start with our prefix.
   if (std::strncmp(input, "sql", 3) != 0) return false;

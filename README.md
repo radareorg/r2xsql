@@ -140,6 +140,19 @@ consume [`libxsql`](https://github.com/0xeb/libxsql): the Makefile uses a
 sibling `../libxsql` checkout (else clones it), and meson pulls it as a
 subproject. A current libxsql is required (same as CMake's `FetchContent`).
 
+### JSON results
+
+Use `sqlj` for programmatic queries and scripts:
+
+```text
+"sqlj SELECT NULL AS missing, '' AS empty; SELECT count(*) AS n FROM funcs"
+```
+
+It returns libxsql's JSON envelope with per-statement columns, rows, errors,
+and timings. SQL NULL is JSON `null`, distinct from the empty string. Quoting
+the entire r2 command also preserves statement separators and SQL operators.
+The same command works through r2pipe and radare2's HTTP `/cmd/` endpoint.
+
 ## HTTP access through radare2
 
 Load the plugin in a persistent radare2 session and start r2's web server:
