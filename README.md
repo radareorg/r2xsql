@@ -208,6 +208,62 @@ consume [`libxsql`](https://github.com/0xeb/libxsql): the Makefile uses a
 sibling `../libxsql` checkout (else clones it), and meson pulls it as a
 subproject. A current libxsql is required (same as CMake's `FetchContent`).
 
+## HTTP access through radare2
+
+Load the plugin in a persistent radare2 session and start r2's web server:
+
+```sh
+r2 -N -q -i /absolute/path/core_r2xsql.so \
+  -e http.bind=127.0.0.1 -e http.port=9090 -c aa -c '=h' ./target
+```
+
+Use the plugin's actual `.so`, `.dylib`, or `.dll` path. If it is installed,
+omit `-i`. Send a quoted SQL command through r2's `POST /cmd/` endpoint:
+
+```sh
+curl --data-binary '"sql SELECT name, size FROM funcs WHERE size > 100 LIMIT 5"' \
+  http://127.0.0.1:9090/cmd/
+```
+
+`GET /cmd/<encoded-command>` also works for short queries:
+
+```python
+from urllib.parse import quote
+from urllib.request import urlopen
+
+sql = "SELECT name, size FROM funcs WHERE size > 100 ORDER BY size DESC LIMIT 5"
+command = '"sql ' + sql.replace('"', '\\"') + '"'
+with urlopen("http://127.0.0.1:9090/cmd/" + quote(command, safe="")) as response:
+    print(response.read().decode(), end="")
+```
+
+Quote the **whole r2 command**, escape any SQL double quotes, then URL-encode
+it for GET; POST sends the quoted command as the raw body. URL encoding alone
+does not protect SQL operators such as `>` and `|` from r2's command parser.
+Prefer POST for longer SQL to avoid r2's request-line length limit.
+Each request executes one SQL statement; the session
+persists between requests, including analysis and comment changes.
+
+Responses are the plugin's text tables, including the row count. SQL errors
+appear as `ERROR: ...` in the body, even with HTTP status 200. The old
+`--http`, `--bind`, `--token`, `sql.http*`, and `/query` interface is removed;
+configure the native server with r2's `http.*` settings instead.
+
+## Tests
+
+After a CMake full build, with radare2 and a C compiler on `PATH`:
+
+```sh
+python3 -m pip install pytest
+python3 -m pytest -q tests
+R2XSQL_BIN="$PWD/build/bin/r2xsql" python3 -m pytest -q tests/test_smoke.py
+```
+
+The default test run covers the embedded CLI and native HTTP integration;
+the explicit `R2XSQL_BIN` run checks the pipe CLI. Set it for other build layouts,
+`R2XSQL_PLUGIN` for a plugin outside the CLI directory, and `R2_BIN` to choose
+the HTTP server executable. The HTTP test skips when no plugin is built.
+
 ## Backends (internal detail)
 
 Each binary above is one of these backends wired up — you rarely name them

@@ -153,6 +153,10 @@ sql> .quit
 
 The same `.`-prefix works with `-q` (`r2xsql -s a.bin -q ".ij"`).
 
+For remote access, use the in-r2 plugin through [radare2's HTTP
+server](../README.md#http-access-through-radare2). Quote the whole SQL command;
+see the POST and GET examples there.
+
 ### Performance strategy
 
 A one-shot `-q` pays the full open+analyze cost every invocation. For anything
@@ -2028,8 +2032,7 @@ SELECT printf('0x%x', addr) AS at, bytes FROM instructions WHERE func_addr = 0x4
 4. **Filter on integers/addresses,** not on stringified disassembly where you
    can avoid it.
 5. **Reuse a live session.** Tables rebuild per query (no persistent cache) — for
-   repeated drilling, keep the session warm with the `-i` REPL or the in-r2 plugin with the
-   in-r2 plugin.
+   repeated drilling, keep the session warm with the `-i` REPL or the in-r2 plugin.
 6. **Materialize repeated broad scans.** If you need an unfiltered `xrefs` set
    several times in a session, snapshot it:
 

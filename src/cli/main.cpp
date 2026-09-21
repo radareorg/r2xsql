@@ -16,16 +16,14 @@
 //   -h, --help      print this help and exit
 
 #include <r2xsql/r2xsql.hpp>
-#include <r2xsql/backend_mock.hpp>
 
 #include <xsql/database.hpp>
-#include <xsql/json.hpp>
 #include <xsql/query_script.hpp>
-
 
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <sstream>
@@ -48,7 +46,6 @@ struct Args {
   bool use_pipe = false;  // false => prefer libr
   bool show_help = false;
   bool show_version = false;
-
 };
 
 void print_help() {
@@ -192,8 +189,7 @@ void print_statement_result(const xsql::ScriptStatementResult& r) {
 // Run every ';'-terminated statement in `sql`, not just the first. A single
 // Session::query() call executes exactly one prepared statement and silently
 // drops the rest of a multi-statement blob, so this goes through
-// xsql::run_script — the multi-statement orchestrator used for batch queries
-// via query_to_envelope() below — with an executor that adapts
+// xsql::run_script with an executor that adapts
 // r2xsql::Session::query() to the ScriptStatementResult it expects.
 // A leading raw r2 command (".<cmd>") is still special-cased first: it is not
 // SQL and is never split into statements.
@@ -264,8 +260,6 @@ int run_repl(r2xsql::Session& s) {
   }
   return 0;
 }
-
-
 
 }  // namespace
 

@@ -15,7 +15,18 @@ the actual table/column names.
 
 from __future__ import annotations
 
+import subprocess
+
 from test_support import R2xsqlRunner
+
+
+def test_removed_server_options(r2xsql_bin) -> None:
+    help_text = subprocess.check_output([str(r2xsql_bin), "--help"], text=True)
+    for option in ("--http", "--bind", "--token"):
+        assert option not in help_text
+        result = subprocess.run([str(r2xsql_bin), option], capture_output=True, text=True, timeout=10)
+        assert result.returncode == 2
+        assert f"unknown argument: {option}" in result.stderr
 
 
 def _addr_of(runner: R2xsqlRunner, name_like: str) -> str:

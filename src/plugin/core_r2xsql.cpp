@@ -21,24 +21,15 @@
 // stay warm across queries.
 
 #include <r2xsql/r2xsql.hpp>
-#include <r2xsql/backend_mock.hpp>
 
 #include <r_core.h>
 #include <r_lib.h>
 
-#include <cstdio>
 #include <cstring>
-#include <cstdlib>
 #include <memory>
 #include <mutex>
 #include <sstream>
 #include <string>
-#include <string_view>
-
-#include <functional>
-
-#include <xsql/json.hpp>
-#include <xsql/query_script.hpp>
 
 // r2xsql::make_libr_backend_from_core (declared in <r2xsql/backend.hpp>, included
 // via <r2xsql/r2xsql.hpp> above) wraps the host RCore* without taking ownership.
@@ -102,7 +93,6 @@ void print_help(RCore* core, RCoreHelpMessage help = help_msg_sql) {
   r_core_cmd_help(core, help);
 #endif
 }
-
 
 std::string render_table(const xsql::Result& res) {
   std::ostringstream oss;
