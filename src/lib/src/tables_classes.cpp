@@ -3,67 +3,7 @@
 //
 // This file is licensed under the Human-Origin Source License v1.0.
 // See LICENSE.
-//
-// classes / class_methods — C++ class/vtable/RTTI recovery, backed by
-// radare2's anal-side class database (`RAnalClass`, sdb-backed): `acl`
-// (text)/`aclj` (JSON). This is a DIFFERENT, unrelated concept from
-// `ic`/`icj` (`RBinClass`) -- that command reads bin-format class tables
-// (Java/.class, Objective-C, .NET) populated at load time by the matching
-// bin plugin, and is structurally empty for every native PE/ELF binary
-// regardless of content. `ic`/`icj` is never used here. There is also no
-// `acj` command -- the top-level `ac` dispatcher has no `j` case at that
-// level; the JSON list verb is `aclj`, reached through `ac` + `l` + `j`.
-//
-// The anal-side class database is populated either by hand (`ac`/`acm`/`acv`)
-// or automatically by `avrr` (search for C++ vtables, then parse MSVC/Itanium
-// RTTI at each one). radare2's own `aaa` already runs `avrr` internally once,
-// at file-open/analysis time, before this table (or any table) is ever
-// queried.
-//
-// THE HARD CONSTRAINT: `avrr` is confirmed NOT idempotent. A second explicit
-// `avrr` call duplicates every already-recovered class under a `_1`-suffixed
-// name (`r_anal_class_create`'s clash-avoidance renames rather than
-// erroring/merging/no-op'ing) -- measured directly: 7 classes became 14 on a
-// second call, every original name duplicated. Consequence: this file must
-// NEVER issue `avrr` (or `av`) itself, under any code path, including on
-// table (re)registration or a fresh cache build. It only ever reads the
-// class database that `aaa` already populated, via `aclj`. If `aaa` has not
-// run yet in the session, `aclj` reports whatever is already recovered (very
-// possibly nothing) -- an honest empty result, never a trigger to recover
-// anything ourselves.
-//
-// Both tables re-read `aclj` on every query (no cache shared across queries,
-// same convention as `types`/`types_members`) -- `aclj` is a pure read of
-// already-recovered state, so re-reading it costs one extra command per
-// query but can never re-trigger the expensive, non-idempotent recovery
-// itself (that only happens inside `avrr`, which this file never calls).
-//
-// Design decisions made explicitly for this first version (not left open):
-//
-//   - Multiple inheritance: `classes.base_name` is a single nullable TEXT
-//     column holding only the FIRST direct base from `aclj`'s `bases[]`
-//     array. A class with more than one direct base (multiple inheritance)
-//     loses every base past the first from this column -- not silently
-//     corrupted (the first base is real and correct), but genuinely a
-//     narrower view than the raw data. A future breaking-schema revision
-//     could add a junction table (one row per class/base pair) if that
-//     turns out to matter; not built now.
-//   - CRT-noise filtering: NONE. Every class `aclj` reports is visible here,
-//     including CRT-internal recoveries from a statically-linked runtime
-//     (`type_info`, `std::exception`, `std::bad_alloc`, ...). This table
-//     does not invent a curation boundary radare2 itself does not draw. A
-//     caller who wants only their own program's classes filters client-side
-//     (e.g. `WHERE name NOT LIKE 'std::%' AND name <> 'type_info'`).
-//   - ABI coverage: verified against MSVC RTTI only (exact method counts and
-//     base relationships, confirmed against a known compiled hierarchy).
-//     The Itanium ABI (GCC/Clang, Linux/macOS) path exists in radare2
-//     (`avrr` branches on `context.abi`) but its accuracy through this
-//     surface is UNVERIFIED -- do not assume or claim cross-platform
-//     correctness from this table alone.
-//
-// No pushdown: the recovered class set is small (tens to low hundreds of
-// classes on a realistic binary) and is not re-computed per query shape --
-// see the caching note above.
+// Native reads for libr; command fallback for r2pipe and mock.
 
 #include <r2xsql/session.hpp>
 #include <r2xsql/backend.hpp>
@@ -76,24 +16,16 @@
 #include <nlohmann/json.hpp>
 
 #include "tables.hpp"
+#include "direct.hpp"
 #include "json_utils.hpp"
 
 namespace r2xsql {
 
 namespace {
 
-struct ClassRow {
-  std::string                name;
-  std::optional<std::string> base_name;    // first direct base only; see file header
-  std::optional<int64_t>     vtable_addr;
-};
+using direct::ClassRow;
 
-struct ClassMethodRow {
-  std::string             class_name;
-  std::string              name;
-  int64_t                  addr = 0;
-  std::optional<int64_t>   vtable_offset;  // NULL for a non-virtual method
-};
+using direct::ClassMethodRow;
 
 }  // namespace
 
@@ -102,6 +34,10 @@ void register_classes_table(Session& s) {
     .no_shared_cache()
     .estimate_rows([]() -> size_t { return 64; })
     .cache_builder([be = s.backend_ptr()](std::vector<ClassRow>& rows) {
+      if (auto* api = be->direct()) {
+        api->classes_scan(rows);
+        return;
+      }
       auto arr = be->cmd_json("aclj");
       if (!arr.is_array()) return;
       rows.reserve(arr.size());
@@ -143,6 +79,10 @@ void register_class_methods_table(Session& s) {
     .no_shared_cache()
     .estimate_rows([]() -> size_t { return 256; })
     .cache_builder([be = s.backend_ptr()](std::vector<ClassMethodRow>& rows) {
+      if (auto* api = be->direct()) {
+        api->class_methods_scan(rows);
+        return;
+      }
       auto arr = be->cmd_json("aclj");
       if (!arr.is_array()) return;
       for (auto& c : arr) {

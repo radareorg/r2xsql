@@ -12,15 +12,14 @@
 #include <xsql/vtable.hpp>
 
 #include "tables.hpp"
+#include "direct.hpp"
 #include "json_utils.hpp"
 #include "table_utils.hpp"
 
 namespace r2xsql {
 
 namespace {
-struct ProjectRow {
-  std::string name;
-};
+using direct::ProjectRow;
 }  // namespace
 
 void register_projects_table(Session& s) {
@@ -28,6 +27,10 @@ void register_projects_table(Session& s) {
     .no_shared_cache()
     .estimate_rows([]() -> size_t { return 32; })
     .cache_builder([be = s.backend_ptr()](std::vector<ProjectRow>& rows) {
+      if (auto* api = be->direct()) {
+        api->projects_scan(rows);
+        return;
+      }
       auto arr = be->cmd_json("Plj");
       if (!arr.is_array()) return;
       for (auto& j : arr) {

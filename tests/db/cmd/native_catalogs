@@ -1,0 +1,30 @@
+NAME=native class catalogs preserve optional fields and live edits
+FILE=malloc://1024
+ARGS=-e log.level=0 -i build/load.r2 -a x86 -b 64
+CMDS=<<CMDS
+ac NativeBase
+ac NativeDerived
+acb NativeDerived NativeBase 0
+acv NativeDerived 0x200 0
+acm NativeDerived method 0x100 8
+acm NativeDerived plain 0x120
+"sql,:quiet SELECT count(*)=1 FROM classes WHERE name='NativeBase' AND base_name IS NULL AND vtable_addr IS NULL"
+"sql,:quiet SELECT count(*)=1 FROM classes WHERE name='NativeDerived' AND base_name='NativeBase' AND vtable_addr=512"
+"sql,:quiet SELECT count(*)=1 FROM class_methods WHERE name='method' AND addr=256 AND vtable_offset=8"
+"sql,:quiet SELECT count(*)=1 FROM class_methods WHERE name='plain' AND addr=288 AND vtable_offset IS NULL"
+acm- NativeDerived method
+"sql,:quiet SELECT count(*)=0 FROM class_methods WHERE name='method'"
+"sql,:quiet SELECT count(*)>0 FROM registers WHERE role IS NOT NULL"
+"sql,:quiet SELECT count(*)>0 FROM calling_conventions WHERE ret IS NOT NULL"
+CMDS
+EXPECT=<<EXPECTED
+1
+1
+1
+1
+1
+1
+1
+EXPECTED
+EXPECT_ERR=
+RUN
