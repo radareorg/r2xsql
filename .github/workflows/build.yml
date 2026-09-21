@@ -18,7 +18,7 @@ concurrency:
 
 # radare2 is not a submodule of r2xsql; CI builds it from source to an install
 # prefix and points r2xsql at it with -DRadare2_ROOT. R2XSQL_BUILD_FULL=ON
-# builds the libr backend and in-r2 plugin. The overlay artifact installs the
+# builds the libr backend and in-r2 plugin. The plugin artifact installs the
 # plugin under r2's own plugin dir, on top of a matching radare2 install prefix.
 env:
   R2_REF: "6.2.2"
@@ -64,11 +64,11 @@ jobs:
         shell: bash
         run: bash .github/scripts/stage_artifacts.sh
 
-      - name: Upload overlay artifact
+      - name: Upload plugin artifact
         uses: actions/upload-artifact@v4
         with:
-          name: r2xsql-linux-overlay
-          path: dist/overlay/
+          name: r2xsql-linux-plugin
+          path: dist/plugin/
           if-no-files-found: error
 
   # ============================================================================
@@ -127,11 +127,11 @@ jobs:
         shell: bash
         run: bash .github/scripts/stage_artifacts.sh
 
-      - name: Upload overlay artifact
+      - name: Upload plugin artifact
         uses: actions/upload-artifact@v4
         with:
-          name: r2xsql-windows-overlay
-          path: dist/overlay/
+          name: r2xsql-windows-plugin
+          path: dist/plugin/
           if-no-files-found: error
 
   # ============================================================================
@@ -170,16 +170,16 @@ jobs:
         shell: bash
         run: bash .github/scripts/stage_artifacts.sh
 
-      - name: Upload overlay artifact
+      - name: Upload plugin artifact
         uses: actions/upload-artifact@v4
         with:
-          name: r2xsql-macos-overlay
-          path: dist/overlay/
+          name: r2xsql-macos-plugin
+          path: dist/plugin/
           if-no-files-found: error
 
   # ============================================================================
   # Release — zip each artifact tree (zip root = the deployable layout) and
-  # attach. Overlay zips extract on top of a radare2 install prefix.
+  # attach. Plugin zips extract on top of a radare2 install prefix.
   # ============================================================================
   publish-release:
     name: Publish Release
@@ -207,7 +207,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            r2xsql-linux-overlay.zip
-            r2xsql-windows-overlay.zip
-            r2xsql-macos-overlay.zip
+            r2xsql-linux-plugin.zip
+            r2xsql-windows-plugin.zip
+            r2xsql-macos-plugin.zip
           generate_release_notes: true
