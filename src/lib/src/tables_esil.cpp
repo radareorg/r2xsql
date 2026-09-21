@@ -26,6 +26,7 @@
 
 #include "tables.hpp"
 #include "json_utils.hpp"
+#include "table_utils.hpp"
 
 namespace r2xsql {
 
@@ -365,7 +366,10 @@ class EsilOpsInFuncIterator : public xsql::RowIterator {
   size_t i_ = 0;
   bool started_ = false;
  public:
-  EsilOpsInFuncIterator(Backend* be, int64_t fa) { esil_rows_for_func(be, fa, rows_, discard_); }
+  EsilOpsInFuncIterator(Backend* be, int64_t fa) {
+    if (!table_utils::func_addr_is_start(be, fa)) return;
+    esil_rows_for_func(be, fa, rows_, discard_);
+  }
   bool next() override { if (!started_) started_ = true; else ++i_; return i_ < rows_.size(); }
   bool eof() const override { return started_ && i_ >= rows_.size(); }
   void column(xsql::FunctionContext& ctx, int col) override {
@@ -415,7 +419,10 @@ class EsilOperandsInFuncIterator : public xsql::RowIterator {
   size_t i_ = 0;
   bool started_ = false;
  public:
-  EsilOperandsInFuncIterator(Backend* be, int64_t fa) { esil_rows_for_func(be, fa, discard_, rows_); }
+  EsilOperandsInFuncIterator(Backend* be, int64_t fa) {
+    if (!table_utils::func_addr_is_start(be, fa)) return;
+    esil_rows_for_func(be, fa, discard_, rows_);
+  }
   bool next() override { if (!started_) started_ = true; else ++i_; return i_ < rows_.size(); }
   bool eof() const override { return started_ && i_ >= rows_.size(); }
   void column(xsql::FunctionContext& ctx, int col) override {

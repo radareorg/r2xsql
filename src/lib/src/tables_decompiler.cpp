@@ -20,6 +20,7 @@
 
 #include "tables.hpp"
 #include "json_utils.hpp"
+#include "table_utils.hpp"
 
 namespace r2xsql {
 
@@ -59,10 +60,12 @@ class PseudoAtFuncIterator : public xsql::RowIterator {
   bool started_ = false;
   bool done_ = false;
  public:
-  PseudoAtFuncIterator(Backend* be, const std::string& dec_cmd, int64_t fa)
-      : row_(pseudo_for_func(be, dec_cmd, fa)) {}
+  PseudoAtFuncIterator(Backend* be, const std::string& dec_cmd, int64_t fa) {
+    if (!table_utils::func_addr_is_start(be, fa)) { done_ = true; return; }
+    row_ = pseudo_for_func(be, dec_cmd, fa);
+  }
   bool next() override {
-    if (started_) { done_ = true; return false; }
+    if (done_ || started_) { done_ = true; return false; }
     started_ = true;
     return true;
   }

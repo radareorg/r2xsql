@@ -396,6 +396,10 @@ class Api {
  public:
   virtual ~Api() = default;
 
+  // True only when addr is exactly a function entry. Avoids command/JSON
+  // round-trips for scoped SQL pushdowns on the in-process backend.
+  virtual bool function_is_start(int64_t addr) = 0;
+
   // `xrefs` full scan — the command path's `aflj` + one `afxj` per function.
   virtual void xrefs_scan(std::vector<XrefRow>& out) = 0;
 
