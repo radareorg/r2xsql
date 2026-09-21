@@ -47,6 +47,11 @@ def test_r2_http(r2_bin, r2xsql_plugin, fixture_binary, tmp_path, post):
             assert "sql <SQL>" in command("sql?"), log_path.read_text()
             assert ":csv" in command("sql,?")
             assert int(sql("SELECT count(*) AS n FROM funcs").splitlines()[1]) > 0
+            for kind, command_name in [("table", "sql.tables"), ("view", "sql.views")]:
+                command("e cfg.table.format=tsv")
+                assert command(command_name) == sql(
+                    f"SELECT name FROM sqlite_master WHERE type='{kind}' ORDER BY name")
+            command("e cfg.table.format=")
             literal = "a|b;?e INJECTED & # % + ? @ café" + ("x" * 4096 if post else "")
             rendered_literal = literal.replace("é", r"\xc3\xa9")
             assert sql(f"SELECT 7 > 3 AS comparison, 1 | 2 AS bits, '{literal}' AS literal") == (
