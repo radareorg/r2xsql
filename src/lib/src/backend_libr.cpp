@@ -152,7 +152,7 @@ class LibrBackend : public Backend {
     // have set it, with the cache guard then skipping every later reload
     // even after `dir.prefix` is corrected. r_sys_prefix() on Windows
     // resolves relative to THIS EXECUTABLE'S OWN location, not radare2's
-    // install, so `r2xsql-full` needs this if it isn't deployed inside
+    // install, so an embedding app needs this if it isn't deployed inside
     // radare2's own bin/. If auto-detection
     // fails and this build knows the radare2 prefix it was actually
     // configured against (R2XSQL_RADARE2_PREFIX, same machine — see
@@ -206,7 +206,7 @@ class LibrBackend : public Backend {
         r_config_set_i(core->config, "asm.bits", 16);
         r_core_anal_type_init(core);
         std::fprintf(stderr,
-            "r2xsql-full: this executable is not deployed inside radare2's "
+            "r2xsql: this executable is not deployed inside radare2's "
             "install bin/ (looked in %s); falling back to the prefix this "
             "build was configured against (%s) for calling-convention, "
             "syscall, and type data.\n",
@@ -216,13 +216,13 @@ class LibrBackend : public Backend {
 #endif
       {
         std::fprintf(stderr,
-            "r2xsql-full: radare2 data dir not found (looked in %s).\n"
+            "r2xsql: radare2 data dir not found (looked in %s).\n"
             "       The 'types' table, ordinal-imported symbols, "
             "'funcs.calltype', and 'funcs.stackframe' will be incomplete "
             "or report a generic fallback value rather than the correct "
             "one.\n"
-            "       Run r2xsql-full from the radare2 install bin/ directory "
-            "(next to radare2.exe), or use the pipe-only r2xsql.\n",
+            "       Run the host application from the radare2 install bin/ directory "
+            "(next to radare2.exe), or use the r2pipe backend.\n",
             dd.probe_path.empty() ? "<unknown>" : dd.probe_path.c_str());
       }
     }

@@ -91,7 +91,7 @@ if(Radare2_FOUND AND Radare2_ROOT)
   # or lib/<multiarch-triplet> — meson's default on Debian/Ubuntu installs to
   # lib/x86_64-linux-gnu. Locate it from where libr_core actually landed; if we
   # assumed lib/ we would find NO libraries there, leave Radare2_LIBRARIES empty,
-  # and link r2xsql-full / the plugin with zero radare2 libs — which compiles and
+  # and link libr consumers with zero radare2 libs — which compiles and
   # links "cleanly" right up to a wall of undefined r_core_* references.
   set(_r2_libdir "${Radare2_ROOT}/lib")
   file(GLOB _r2_core_glob
@@ -143,7 +143,7 @@ if(Radare2_FOUND AND Radare2_ROOT)
     endif()
   endforeach()
 
-  # A resolved root but an empty library set means consumers (r2xsql-full, the
+  # A resolved root but an empty library set means consumers (the examples and
   # plugin) would link with NO radare2 libs and die on a wall of undefined
   # r_core_* symbols. Surface it at configure time instead.
   list(LENGTH Radare2_LIBRARIES _r2_nlibs)

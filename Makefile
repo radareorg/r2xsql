@@ -6,7 +6,7 @@
 # This is the radare2-conventional build for the *plugin only* (the in-process
 # `sql` command radare2 loads). It mirrors the layout radare2 plugins use:
 # plugin paths come from `r2 -H`, radare2 itself from `pkg-config r_core`.
-# CMake remains the primary/full build (CLI flavors, Windows) — see
+# CMake remains the library and cross-platform build (including Windows) — see
 # README.md; this Makefile exists so the plugin can be built and installed the
 # radare2 way, with no CMake required.
 #

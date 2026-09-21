@@ -1,8 +1,5 @@
 """Exercise the plugin through radare2's own HTTP command endpoint."""
 
-import os
-from pathlib import Path
-import shutil
 import socket
 import subprocess
 import time
@@ -13,17 +10,7 @@ import pytest
 
 
 @pytest.mark.parametrize("post", [False, True], ids=["GET", "POST"])
-def test_r2_http(r2xsql_bin, fixture_binary, tmp_path, post):
-    plugin = os.environ.get("R2XSQL_PLUGIN")
-    if not plugin:
-        plugin = next((p for p in r2xsql_bin.parent.glob("core_r2xsql.*")
-                       if p.suffix in (".so", ".dylib", ".dll")), None)
-        if plugin is None:
-            pytest.skip("build the full flavor or set R2XSQL_PLUGIN to test HTTP")
-    plugin = Path(plugin).resolve()
-    assert plugin.is_file(), f"plugin not found: {plugin}"
-    r2 = os.environ.get("R2_BIN") or shutil.which("radare2") or shutil.which("r2")
-    assert r2, "radare2 is required; put it on PATH or set R2_BIN"
+def test_r2_http(r2_bin, r2xsql_plugin, fixture_binary, tmp_path, post):
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
@@ -41,9 +28,9 @@ def test_r2_http(r2xsql_bin, fixture_binary, tmp_path, post):
     log_path = tmp_path / "r2-http.log"
     with log_path.open("w") as log:
         proc = subprocess.Popen([
-            str(r2), "-N", "-q", "-e", "http.bind=127.0.0.1", "-e", f"http.port={port}",
+            r2_bin, "-N", "-q", "-e", "http.bind=127.0.0.1", "-e", f"http.port={port}",
             "-e", "http.log=false", "-e", "scr.color=0",
-            "-i", str(plugin), "-c", "aa", "-c", "=h", str(fixture_binary),
+            "-i", str(r2xsql_plugin), "-c", "aa", "-c", "=h", str(fixture_binary),
         ], stdout=log, stderr=log, cwd=tmp_path)
         try:
             deadline = time.monotonic() + 15

@@ -1,18 +1,13 @@
 # Copyright (c) 2024-2026 Elias Bachaalany
 # SPDX-License-Identifier: LicenseRef-Human-Origin-Source-1.0
-"""Shared helpers for the r2xsql test-suite: locate the built CLI, build the
-deterministic fixture, and run SQL queries against it.
-
-This suite is standalone: it locates an already-built `r2xsql`/`r2xsql-full`
-executable (build it yourself first, e.g. via this repo's own CMakeLists.txt)
-rather than building r2xsql itself, and it compiles the fixture with whatever
-C compiler is on PATH (`cc`/`gcc`/`clang` on Unix, `cl` on Windows inside a
-Developer/VS shell) rather than assuming a specific build system.
+"""Locate the built plugin, compile a deterministic fixture, and run SQL
+through radare2. Build r2xsql first; the fixture only needs a C compiler.
 """
 
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -23,52 +18,16 @@ TESTS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = TESTS_DIR.parent  # r2xsql/
 
 
-def _candidate_binary_names() -> list[str]:
-    exe = ".exe" if sys.platform == "win32" else ""
-    return [f"r2xsql-full{exe}", f"r2xsql{exe}"]
-
-
-def find_r2xsql_binary() -> Path | None:
-    """Locate a built r2xsql CLI executable.
-
-    Priority: the `R2XSQL_BIN` environment variable (an exact path), then a
-    handful of common build-output locations under the repo root. Prefers
-    `r2xsql-full` (libr, in-process) over the pipe-only `r2xsql`, since it
-    exposes the complete schema (all 12 views; some builds of the pipe-only
-    CLI have been observed missing the 4 `views_shared.cpp` views).
-    `r2xsql-full` only resolves radare2's full data
-    directory (calling conventions, syscalls, types) when the executable is
-    deployed inside radare2's own install `bin/`; tests that are sensitive
-    to that (see test_funcs_calltype_is_writable) are written to still be
-    meaningful when it isn't.
-    """
-    env_path = os.environ.get("R2XSQL_BIN")
+def find_r2xsql_plugin() -> Path | None:
+    """Find the plugin from R2XSQL_PLUGIN or a CMake, Make, or Meson build."""
+    env_path = os.environ.get("R2XSQL_PLUGIN")
     if env_path:
-        p = Path(env_path)
-        if p.is_file():
-            return p
-
-    search_dirs = [
-        REPO_ROOT / "build",
-        REPO_ROOT / "build" / "Release",
-        REPO_ROOT / "build" / "Debug",
-        REPO_ROOT / "out",
-    ]
-    for d in search_dirs:
-        if not d.is_dir():
-            continue
-        for name in _candidate_binary_names():
-            p = d / name
-            if p.is_file():
-                return p
-        # one level deeper (e.g. build/<preset>/Release/r2xsql-full.exe)
-        for sub in d.iterdir():
-            if not sub.is_dir():
-                continue
-            for name in _candidate_binary_names():
-                p = sub / name
-                if p.is_file():
-                    return p
+        path = Path(env_path).resolve()
+        return path if path.is_file() else None
+    for name in ("build", "build-make", "build-meson", "out"):
+        for path in sorted((REPO_ROOT / name).rglob("core_r2xsql.*")):
+            if path.is_file() and path.suffix in (".so", ".dylib", ".dll"):
+                return path.resolve()
     return None
 
 
@@ -127,8 +86,7 @@ def build_fixture(out_dir: Path) -> Path:
 
 @dataclass
 class QueryResult:
-    """A parsed r2xsql CLI response: tab-separated header + rows on success,
-    `error: <message>` on stderr and a non-zero exit code on failure."""
+    """A parsed plugin response, including SQL errors printed on stdout."""
 
     returncode: int
     stdout: str
@@ -153,70 +111,45 @@ class QueryResult:
 
 
 class R2xsqlRunner:
-    """Runs `-s <fixture> -q "<sql>"` against a fixed fixture binary."""
+    """Run SQL through the plugin against a fixed fixture binary."""
 
-    def __init__(self, cli_path: Path, fixture_path: Path):
-        self.cli_path = cli_path
+    def __init__(self, r2_path: str, plugin_path: Path, fixture_path: Path):
+        self.r2_path = r2_path
+        self.plugin_path = plugin_path
         self.fixture_path = fixture_path
 
-    def query(self, sql: str, *, write: bool = False, extra_args: list[str] | None = None) -> QueryResult:
-        cmd = [str(self.cli_path), "-s", str(self.fixture_path)]
-        if write:
-            cmd.append("-w")
-        if extra_args:
-            cmd.extend(extra_args)
-        cmd.extend(["-q", sql])
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        columns, rows = _parse_tab_block(proc.stdout) if proc.returncode == 0 else ([], [])
-        return QueryResult(
-            returncode=proc.returncode,
-            stdout=proc.stdout,
-            stderr=proc.stderr,
-            columns=columns,
-            rows=rows,
-        )
+    def query(self, sql: str, *, write: bool = False) -> QueryResult:
+        return self.script([sql], write=write)
 
     def script(self, statements: list[str], *, write: bool = False) -> QueryResult:
-        """Run several statements in ONE session (`-i` REPL, fed via stdin),
-        returning the LAST statement's result.
-
-        `-q "a; b"` only executes/prints the FIRST statement (a libxsql
-        `Session::query()` property, not an r2xsql bug) and a write from
-        one `-q` call is not visible
-        to a separate `-q` call (a fresh process re-opens the file from
-        scratch). The REPL runs each line as its own `query()` call against
-        the SAME open session, so an earlier write's effect is visible to a
-        later read -- the only CLI mode that supports this today.
-        """
-        cmd = [str(self.cli_path), "-s", str(self.fixture_path)]
+        """Run statements in one session and return the last table's rows."""
+        cmd = [self.r2_path, "-N", "-q", "-e", "scr.color=0",
+               "-i", str(self.plugin_path), "-c", "aaa"]
         if write:
             cmd.append("-w")
-        cmd.append("-i")
-        stdin = "\n".join(statements) + "\n.quit\n"
-        proc = subprocess.run(
-            cmd, input=stdin, capture_output=True, text=True, timeout=60
-        )
-        # REPL output: banner lines, then "sql> " (no trailing newline) before
-        # each statement's result. Strip the banner, split on the prompt, and
-        # parse the last non-empty chunk (the final statement's output).
-        banner_end = proc.stdout.find("raw r2 command")
-        tail = proc.stdout[proc.stdout.find("\n", banner_end) + 1:] if banner_end != -1 else proc.stdout
-        chunks = [c for c in tail.split("sql> ") if c.strip()]
-        last = chunks[-1] if chunks else ""
-        columns, rows = _parse_tab_block(last) if proc.returncode == 0 else ([], [])
+        for sql in statements:
+            cmd.extend(["-c", '"sql ' + sql.replace('"', '\\"') + '"'])
+        cmd.append(str(self.fixture_path))
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        errors = [line for line in proc.stdout.splitlines()
+                  if line.startswith(("ERROR:", "EXCEPTION:"))]
+        completed = re.search(r"(?m)^\(\d+ rows\)\s*\Z", proc.stdout)
+        columns, rows = _parse_tab_block(proc.stdout)
         return QueryResult(
-            returncode=proc.returncode,
+            returncode=proc.returncode or int(bool(errors) or not completed),
             stdout=proc.stdout,
-            stderr=proc.stderr,
+            stderr=proc.stderr + "\n".join(errors),
             columns=columns,
             rows=rows,
         )
 
 
 def _parse_tab_block(text: str) -> tuple[list[str], list[list[str]]]:
-    lines = text.splitlines()
+    # Every plugin result ends with a row count; use the last completed table.
+    blocks = re.split(r"(?m)^\(\d+ rows\)\r?$", text)
+    if len(blocks) < 2:
+        return [], []
+    lines = blocks[-2].strip("\r\n").splitlines()
     if not lines:
         return [], []
-    columns = lines[0].split("\t")
-    rows = [line.split("\t") for line in lines[1:] if line != ""]
-    return columns, rows
+    return lines[0].split("\t"), [line.split("\t") for line in lines[1:]]

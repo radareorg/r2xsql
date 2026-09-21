@@ -4,25 +4,31 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import shutil
 
 import pytest
 
-from test_support import R2xsqlRunner, build_fixture, find_r2xsql_binary
+from test_support import R2xsqlRunner, build_fixture, find_r2xsql_plugin
 
 
 @pytest.fixture(scope="session")
-def r2xsql_bin() -> Path:
-    """The built r2xsql CLI. Fails loudly (not a skip) when absent: an
-    unbuilt binary is a build-environment problem to fix, not a test to
-    quietly not run. Point R2XSQL_BIN at an executable to override the
-    search."""
-    path = find_r2xsql_binary()
+def r2_bin() -> str:
+    path = os.environ.get("R2_BIN") or shutil.which("radare2") or shutil.which("r2")
+    path = shutil.which(path) if path else None
+    if not path:
+        pytest.fail("radare2 is required; put it on PATH or set R2_BIN", pytrace=False)
+    return str(Path(path).resolve())
+
+
+@pytest.fixture(scope="session")
+def r2xsql_plugin() -> Path:
+    path = find_r2xsql_plugin()
     if path is None:
         pytest.fail(
-            "no r2xsql/r2xsql-full binary found. Build it first (see this "
-            "repo's CMakeLists.txt), or set R2XSQL_BIN to an explicit path.",
-            pytrace=False,
+            "no core_r2xsql plugin found. Build it first or set R2XSQL_PLUGIN "
+            "to its path.", pytrace=False,
         )
     return path
 
@@ -36,5 +42,5 @@ def fixture_binary(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture(scope="session")
-def runner(r2xsql_bin: Path, fixture_binary: Path) -> R2xsqlRunner:
-    return R2xsqlRunner(r2xsql_bin, fixture_binary)
+def runner(r2_bin: str, r2xsql_plugin: Path, fixture_binary: Path) -> R2xsqlRunner:
+    return R2xsqlRunner(r2_bin, r2xsql_plugin, fixture_binary)

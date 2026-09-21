@@ -17,20 +17,15 @@ concurrency:
   cancel-in-progress: true
 
 # radare2 is not a submodule of r2xsql; CI builds it from source to an install
-# prefix and points r2xsql at it with -DRadare2_ROOT. ONE configure with
-# -DR2XSQL_BUILD_FULL=ON yields both flavors, packaged as two release artifacts:
-#   * overlay   — bin/r2xsql-full[.exe] (in-process libr) + the in-r2 plugin laid
-#                 out under r2's own plugin dir, so the zip is extracted ON TOP
-#                 OF a radare2 install prefix (drop-in next to radare2[.exe]).
-#   * pipe-only — the self-contained r2xsql[.exe] (no r_*.dll; always built) that
-#                 only needs radare2[.exe] on PATH at runtime.
-# CI builds the public artifacts only (library, CLIs, in-r2 plugin).
+# prefix and points r2xsql at it with -DRadare2_ROOT. R2XSQL_BUILD_FULL=ON
+# builds the libr backend and in-r2 plugin. The overlay artifact installs the
+# plugin under r2's own plugin dir, on top of a matching radare2 install prefix.
 env:
   R2_REF: "94949e8122e8d8031c62436011d0106875f8da1a"  # 6.1.6-135 (builds 6.1.7)
 
 jobs:
   # ============================================================================
-  # Linux: pipe r2xsql + full r2xsql-full + plugin (one configure)
+  # Linux: library + in-r2 plugin
   # ============================================================================
   build-linux:
     name: Build (Linux)
@@ -59,10 +54,8 @@ jobs:
           ninja -C r2src/b
           ninja -C r2src/b install
 
-      - name: Configure + build (pipe r2xsql + full r2xsql-full + plugin)
+      - name: Configure + build (library + in-r2 plugin)
         run: |
-          # One configure yields both flavors: the always-on pipe-only r2xsql and
-          # (via R2XSQL_BUILD_FULL) the in-process r2xsql-full + core_r2xsql plugin.
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
             -DR2XSQL_BUILD_FULL=ON -DRadare2_ROOT="$GITHUB_WORKSPACE/r2prefix"
           cmake --build build --config Release
@@ -78,15 +71,8 @@ jobs:
           path: dist/overlay/
           if-no-files-found: error
 
-      - name: Upload pipe-only artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: r2xsql-linux-pipe-only
-          path: dist/pipe/
-          if-no-files-found: error
-
   # ============================================================================
-  # Windows: pipe r2xsql + full r2xsql-full + plugin (one configure)
+  # Windows: library + in-r2 plugin
   # ============================================================================
   build-windows:
     name: Build (Windows)
@@ -130,11 +116,9 @@ jobs:
           ninja -C r2src/b
           ninja -C r2src/b install
 
-      - name: Configure + build (pipe r2xsql + full r2xsql-full + plugin)
+      - name: Configure + build (library + in-r2 plugin)
         shell: bash
         run: |
-          # One configure yields both flavors: the always-on pipe-only r2xsql and
-          # (via R2XSQL_BUILD_FULL) the in-process r2xsql-full + core_r2xsql plugin.
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DR2XSQL_BUILD_FULL=ON -DRadare2_ROOT="$GITHUB_WORKSPACE/r2prefix"
           cmake --build build --config Release
@@ -150,15 +134,8 @@ jobs:
           path: dist/overlay/
           if-no-files-found: error
 
-      - name: Upload pipe-only artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: r2xsql-windows-pipe-only
-          path: dist/pipe/
-          if-no-files-found: error
-
   # ============================================================================
-  # macOS (Apple Silicon): pipe r2xsql + full r2xsql-full + plugin (one configure)
+  # macOS (Apple Silicon): library + in-r2 plugin
   # ============================================================================
   build-macos:
     name: Build (macOS)
@@ -183,10 +160,8 @@ jobs:
           ninja -C r2src/b
           ninja -C r2src/b install
 
-      - name: Configure + build (pipe r2xsql + full r2xsql-full + plugin)
+      - name: Configure + build (library + in-r2 plugin)
         run: |
-          # One configure yields both flavors: the always-on pipe-only r2xsql and
-          # (via R2XSQL_BUILD_FULL) the in-process r2xsql-full + core_r2xsql plugin.
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
             -DR2XSQL_BUILD_FULL=ON -DRadare2_ROOT="$GITHUB_WORKSPACE/r2prefix"
           cmake --build build --config Release
@@ -200,13 +175,6 @@ jobs:
         with:
           name: r2xsql-macos-overlay
           path: dist/overlay/
-          if-no-files-found: error
-
-      - name: Upload pipe-only artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: r2xsql-macos-pipe-only
-          path: dist/pipe/
           if-no-files-found: error
 
   # ============================================================================
@@ -240,9 +208,6 @@ jobs:
         with:
           files: |
             r2xsql-linux-overlay.zip
-            r2xsql-linux-pipe-only.zip
             r2xsql-windows-overlay.zip
-            r2xsql-windows-pipe-only.zip
             r2xsql-macos-overlay.zip
-            r2xsql-macos-pipe-only.zip
           generate_release_notes: true

@@ -20,7 +20,7 @@
 // SDB is already loaded when a session opens; `asj` is one command, no N+1).
 //
 // Deployment note (verified empirically, not assumed): the in-process
-// `r2xsql-full` flavor is subject to the project's documented data-dir
+// libr backend is subject to the project's documented data-dir
 // cliff for this table too, and it needed its OWN fix distinct from the
 // `types`/calling-convention one -- `r_syscall_setup`'s SDB loader ignores
 // `dir.prefix` (and every other core config) entirely, resolving its data
