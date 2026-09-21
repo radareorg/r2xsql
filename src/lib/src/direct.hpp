@@ -490,7 +490,8 @@ class Api {
   // 17-47x on a full scan across a real binary and generated fixtures, plus
   // a real large DLL, with exact field parity -- including the pointer-
   // equality `realname` quirk -- before being ported.
-  virtual void flags_scan(std::vector<FlagRow>& out) = 0;
+  virtual void flags_scan(std::vector<FlagRow>& out, const char* space = nullptr) = 0;
+  virtual bool flag_at(const std::string& name, const std::string& space, int64_t addr) = 0;
 
   // `strings` full scan -- the command path's `izj`. `with_content` mirrors
   // the existing projection optimization (skip copying the string body when

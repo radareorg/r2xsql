@@ -81,8 +81,9 @@ private:
   Backend& backend_;
 };
 
-bool has_bookmark(const nlohmann::json& arr, int64_t addr,
-                  std::string_view name) {
+bool has_bookmark(Backend* be, int64_t addr, const std::string& name) {
+  if (auto* api = be->direct()) return api->flag_at(name, "bookmarks", addr);
+  auto arr = be->cmd_json("fj @ " + json_utils::hex_addr(addr));
   if (!arr.is_array()) return false;
   for (const auto& item : arr) {
     if (json_utils::i64_addr(item) == addr &&
@@ -99,6 +100,14 @@ void register_bookmarks_table(Session& s) {
     .no_shared_cache()
     .estimate_rows([]() -> size_t { return 128; })
     .cache_builder([be = s.backend_ptr()](std::vector<BookmarkRow>& rows) {
+      if (auto* api = be->direct()) {
+        std::vector<direct::FlagRow> flags;
+        api->flags_scan(flags, "bookmarks");
+        for (const auto& f : flags) {
+          rows.push_back({static_cast<int64_t>(rows.size() + 1), f.addr, f.name});
+        }
+        return;
+      }
       BookmarkSpaceScope scope(*be);
       auto arr = be->cmd_json("fj");
       if (!arr.is_array()) return;
@@ -139,9 +148,7 @@ void register_bookmarks_table(Session& s) {
           xsql::set_vtab_error("bookmarks: rename failed: " + e);
           return false;
         }
-        if (!has_bookmark(
-                be->cmd_json("fj @ " + json_utils::hex_addr(r.addr)),
-                r.addr, v)) {
+        if (!has_bookmark(be, r.addr, v)) {
           xsql::set_vtab_error("bookmarks: rename was not applied");
           return false;
         }
@@ -155,9 +162,7 @@ void register_bookmarks_table(Session& s) {
         xsql::set_vtab_error("bookmarks: delete failed: " + e);
         return false;
       }
-      if (has_bookmark(
-              be->cmd_json("fj @ " + json_utils::hex_addr(r.addr)),
-              r.addr, r.name)) {
+      if (has_bookmark(be, r.addr, r.name)) {
         xsql::set_vtab_error("bookmarks: delete was not applied");
         return false;
       }
@@ -187,9 +192,7 @@ void register_bookmarks_table(Session& s) {
         xsql::set_vtab_error("bookmarks: insert failed: " + e);
         return false;
       }
-      if (!has_bookmark(be->cmd_json(
-                            "fj @ " + json_utils::hex_addr(addr)),
-                        addr, name)) {
+      if (!has_bookmark(be, addr, name)) {
         xsql::set_vtab_error("bookmarks: insert was not applied");
         return false;
       }
