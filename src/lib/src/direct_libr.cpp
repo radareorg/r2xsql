@@ -121,6 +121,29 @@ class LibrApi : public Api {
     return 0;
   }
 
+  std::string demangle(const std::string& mangled,
+                       const std::string& lang, std::string& error) override {
+    std::lock_guard lock(mu_);
+    error = "Cannot demangle string";
+    if (!core_ || !core_->bin) return {};
+    const char* selected_lang = lang.empty()
+        ? r_config_get(core_->config, "bin.lang") : lang.c_str();
+    if ((!selected_lang || !*selected_lang) && lang.empty()) {
+      error = "Set the language in `e bin.lang` or pass a second argument";
+    }
+    RBinFile temporary_file = {};
+    RBinFile* file = core_->bin->cur;
+    if (!file) {
+      temporary_file.rbin = core_->bin;
+      file = &temporary_file;
+    }
+    char* result = r_bin_demangle(file, selected_lang, mangled.c_str(), 0, false);
+    if (!result) return {};
+    std::string demangled(result);
+    free(result);
+    return demangled;
+  }
+
   bool function_is_start(int64_t addr) override {
     std::lock_guard lock(mu_);
     return core_ && core_->anal &&

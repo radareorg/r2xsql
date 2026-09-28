@@ -59,7 +59,7 @@ void register_class_methods_table(Session& s);
 void register_registers_table(Session& s);  // static per-arch register profile (arpj)
 void register_relocs_table(Session& s);     // relocation table (irj)
 void register_libs_table(Session& s);       // linked library list (ilj)
-void register_demangle_table(Session& s);   // one-row demangler (iD/iDj)
+void register_demangle_table(Session& s);   // one-row RBin demangler
 void register_assemble_table(Session& s);   // one-row assembler (pa)
 void register_search_asm_table(Session& s); // assemble-then-search (/a)
 void register_read_cstr_table(Session& s);  // arbitrary-address cstring read (pszj)

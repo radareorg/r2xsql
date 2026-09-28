@@ -26,6 +26,8 @@
 // That TU boundary is what forces the row struct out of its table's anonymous
 // namespace and into this header: a row struct lives beside its table until the
 // table is ported, and moves here when a second TU has to build it.
+// The demangle method also uses this boundary so arbitrary symbol text reaches
+// RBin directly, without passing through the r2 command parser.
 
 #pragma once
 
@@ -508,6 +510,11 @@ class Api {
   virtual void binary_info(std::vector<BinaryRow>& out) = 0;
   virtual std::string file_path() = 0;
   virtual std::string engine_version() = 0;
+  // Demangle an arbitrary symbol using the current RBinFile and bin.lang
+  // setting. Empty result means radare2 could not demangle the name; error
+  // receives the same diagnostic as iDj in that case.
+  virtual std::string demangle(const std::string& mangled,
+                               const std::string& lang, std::string& error) = 0;
   virtual bool entry_address(int64_t& out) = 0;
   virtual void relocs_scan(std::vector<RelocRow>& out) = 0;
   virtual void type_members_scan(std::vector<MemberRow>& out) = 0;
