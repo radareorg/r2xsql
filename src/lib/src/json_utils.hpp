@@ -31,7 +31,7 @@ int64_t     i64_addr(const nlohmann::json& obj, int64_t dflt = 0);
 
 // Quote a string for use as a shell-ish r2 command argument. r2 itself is
 // not a shell, but spaces, quotes and backslashes need escaping in CC args.
-std::string r2_quote(std::string_view s);
+
 
 // True iff `name` is safe to splice into an r2 flag command unquoted: a
 // non-empty string of [A-Za-z0-9._$] only. This is roughly r2's own flag-name
