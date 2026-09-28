@@ -127,7 +127,7 @@ void build_flags(Backend* be, std::vector<FlagRow>& rows) {
     const std::string name = json_utils::str(sp, "name");
     // A space name is spliced into a command, so it gets the same charset gate
     // as every other name this project sends to radare2.
-    if (name.empty() || !json_utils::valid_flag_name(name)) continue;
+    if (name.empty() || !r_name_check(name.c_str())) continue;
     if (json_utils::i64(sp, "count") == 0) continue;   // nothing to attribute
 
     // One command, not three: selecting a flagspace is session state, so the
@@ -163,7 +163,7 @@ void register_flags_table(Session& s) {
       [](const FlagRow& r) { return r.name; },
       [be = s.backend_ptr()](FlagRow& r, const char* v) -> bool {
         if (!v || !*v) return false;
-        if (!json_utils::valid_flag_name(v)) {
+        if (!r_name_check(v.c_str())) {
           xsql::set_vtab_error(
               "flags: name must be [A-Za-z0-9._$] (no spaces or r2 metacharacters)");
           return false;
@@ -260,7 +260,7 @@ void register_flags_table(Session& s) {
         xsql::set_vtab_error("flags: INSERT requires a non-empty name");
         return false;
       }
-      if (!json_utils::valid_flag_name(name)) {
+      if (!r_name_check(name.c_str())) {
         xsql::set_vtab_error(
             "flags: name must be [A-Za-z0-9._$] (no spaces or r2 metacharacters)");
         return false;

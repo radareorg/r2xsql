@@ -4,6 +4,7 @@
 // This file is licensed under the Human-Origin Source License v1.0.
 // See LICENSE.
 #include "json_utils.hpp"
+#include <r_util.h>
 
 #include <cctype>
 #include <cstdio>
@@ -73,15 +74,6 @@ std::string r2_quote(std::string_view s) {
   return out;
 }
 
-bool valid_flag_name(std::string_view name) {
-  if (name.empty()) return false;
-  for (unsigned char c : name) {
-    const bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-                    (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '$';
-    if (!ok) return false;
-  }
-  return true;
-}
 
 bool valid_type_text(std::string_view type) {
   if (type.empty()) return false;

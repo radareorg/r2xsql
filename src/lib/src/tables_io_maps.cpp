@@ -99,7 +99,7 @@ void register_io_maps_table(Session& s) {
       std::string name;
       if (argc > 3 && !argv[3].is_null()) {
         name = argv[3].as_c_str();
-        if (!name.empty() && !json_utils::valid_flag_name(name.c_str())) {
+        if (!name.empty() && !r_name_check(name.c_str())) {
           xsql::set_vtab_error("io_maps: name must be [A-Za-z0-9._$] (no spaces)");
           return false;
         }

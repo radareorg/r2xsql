@@ -148,7 +148,7 @@ void register_types_table(Session& s) {
     // SQL creates empty struct/union/enum shells and deletes types by name.
     // Full declarations use radare2's native td command.
     .deletable([be = s.backend_ptr()](TypeRow& r) -> bool {
-      if (r.name.empty() || !json_utils::valid_flag_name(r.name)) {
+      if (r.name.empty() || !r_name_check(r.name.c_str())) {
         xsql::set_vtab_error("types: refusing to delete an unsafe/empty type name");
         return false;
       }
@@ -177,7 +177,7 @@ void register_types_table(Session& s) {
       const char* kind_c = argv[2].as_c_str();
       const std::string name = name_c ? name_c : "";
       const std::string kind = kind_c ? kind_c : "";
-      if (name.empty() || !json_utils::valid_flag_name(name)) {
+      if (name.empty() || !r_name_check(name.c_str())) {
         xsql::set_vtab_error("types: refusing to create an unsafe/empty type name");
         return false;
       }

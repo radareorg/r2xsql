@@ -33,12 +33,7 @@ int64_t     i64_addr(const nlohmann::json& obj, int64_t dflt = 0);
 // not a shell, but spaces, quotes and backslashes need escaping in CC args.
 std::string r2_quote(std::string_view s);
 
-// True iff `name` is safe to splice into an r2 flag command unquoted: a
-// non-empty string of [A-Za-z0-9._$] only. This is roughly r2's own flag-name
-// charset; rejecting anything else prevents a name with spaces or command
-// separators (`;`, `@`, `|`, backtick, …) from breaking parsing or injecting
-// extra r2 commands. Use to gate INSERT/UPDATE on the flags/bookmarks tables.
-bool valid_flag_name(std::string_view name);
+
 
 // True iff `type` is a safe C type string to splice into an r2 `afvt` command
 // unquoted: a non-empty string of type-syntax characters only —

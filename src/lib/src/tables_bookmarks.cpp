@@ -126,7 +126,7 @@ void register_bookmarks_table(Session& s) {
       [](const BookmarkRow& r) { return r.name; },
       [be = s.backend_ptr()](BookmarkRow& r, const char* v) -> bool {
         if (!v || !*v) return false;
-        if (!json_utils::valid_flag_name(v)) {
+        if (!r_name_check(v.c_str())) {
           xsql::set_vtab_error(
               "bookmarks: name must be [A-Za-z0-9._$] (no spaces or r2 metacharacters)");
           return false;
@@ -180,7 +180,7 @@ void register_bookmarks_table(Session& s) {
         xsql::set_vtab_error("bookmarks: INSERT requires a non-empty name");
         return false;
       }
-      if (!json_utils::valid_flag_name(name)) {
+      if (!r_name_check(name.c_str())) {
         xsql::set_vtab_error(
             "bookmarks: name must be [A-Za-z0-9._$] (no spaces or r2 metacharacters)");
         return false;
