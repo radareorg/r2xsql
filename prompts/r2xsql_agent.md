@@ -1245,7 +1245,7 @@ its own, the identical trade-off `rop_gadgets` already made for its own
 libr).
 
 #### `demangle` (read-only)
-One row per query: demangles an ARBITRARY mangled name via `iD`/`iDj`.
+One row per query: demangles an ARBITRARY mangled name via `r_bin_demangle`.
 Distinct from `funcs.name`/`imports.name`, which already demangle
 automatically (gated on `bin.demangle`) for symbols radare2 already knows
 from the loaded binary — `demangle` answers the same question for a string
@@ -1269,15 +1269,10 @@ what `lang` says — verified live that an unrecognized `lang` string does not
 abort demangling, it just falls through to auto-detection. `mangled` is NOT
 charset-restricted the way `assemble`/`search_asm`'s `asm` is: MSVC manglings
 use `?`/`@`/`$` throughout, which a disassembly-text allowlist would reject.
-Instead this table dispatches through `Backend::cmd_noeval`, seeked to a
-fixed anchor (0, unobserved by `iD`'s handler either way — same shape as
-`types`' addr-less `td`/`t-` dispatch), falling back to the
-`json_utils::r2_quote`-wrapped plain command on every backend that reports
-cmd_noeval unsupported. Verified live that the injection risk is real: `iDj
-cxx foo; ?e INJECTED` spliced through a plain `Backend::cmd()` call DOES
-execute the injected `?e` as a second command, while `cmd_noeval` reaches
-`iD`'s argument parser with the whole string, `;` included, treated as
-opaque data.
+The in-process backend passes the mangled name directly to `r_bin_demangle`,
+with the current `RBinFile` and `bin.lang` default. This preserves arbitrary
+input without command parsing. A backend without an in-process RBin API
+reports an error for this table.
 
 #### Point-lookup recipes: `name_at` / `section_at` / `string_at`
 
