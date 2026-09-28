@@ -49,7 +49,7 @@
 // `dispatch_write(be, addr, command)` helper every sibling write-capable
 // table (`comments`, `funcs`, `flags`, `bookmarks`, `types`, `patches`)
 // already uses. This is an ADDITIONAL layer alongside this table's existing
-// grammar validation (`valid_flag_name`/`valid_type_text`), never a
+// grammar validation (`r_name_check`/`valid_type_text`), never a
 // replacement for it. On the r2pipe backend, `cmd_noeval` reports unsupported
 // and the exact `afvn`/`afvt` command text this table always issued runs
 // unchanged.
@@ -191,12 +191,12 @@ void register_locals_table(Session& s) {
       [](const LocalRow& r) { return r.name; },
       [be = s.backend_ptr()](LocalRow& r, const char* v) -> bool {
         if (!v || !*v) return false;
-        if (!json_utils::valid_flag_name(v)) {
+        if (!r_name_check(v.c_str())) {
           xsql::set_vtab_error(
               "locals: name must be [A-Za-z0-9._$] (no spaces or r2 metacharacters)");
           return false;
         }
-        if (!json_utils::valid_flag_name(r.name)) {
+        if (!r_name_check(r.name.c_str())) {
           xsql::set_vtab_error(
               "locals: existing name contains r2 command metacharacters");
           return false;
@@ -245,7 +245,7 @@ void register_locals_table(Session& s) {
               "locals: type contains an r2 metacharacter (@ ; | ` \" $ etc.)");
           return false;
         }
-        if (!json_utils::valid_flag_name(r.name)) {
+        if (!r_name_check(r.name.c_str())) {
           xsql::set_vtab_error(
               "locals: existing name contains r2 command metacharacters");
           return false;

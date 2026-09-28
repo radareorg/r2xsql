@@ -42,7 +42,7 @@ void register_projects_table(Session& s) {
     })
     .column_text("name", [](const ProjectRow& r) { return r.name; })
     .deletable([be = s.backend_ptr()](ProjectRow& r) -> bool {
-      if (r.name.empty() || !json_utils::valid_flag_name(r.name)) {
+      if (r.name.empty() || !r_name_check(r.name.c_str())) {
         xsql::set_vtab_error("projects: refusing to delete an unsafe/empty project name");
         return false;
       }

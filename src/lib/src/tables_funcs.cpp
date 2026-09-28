@@ -12,7 +12,7 @@
 // radare2's own command handler, seeked to the target address, called
 // directly without evaluating its command-chaining grammar (`;`/`@`/`|`/
 // backtick) at all. This is an ADDITIONAL layer alongside this table's
-// existing grammar/value validation (`valid_flag_name`, `valid_c_signature`,
+// existing grammar/value validation (`r_name_check`, `valid_c_signature`,
 // the `calling_convention_exists` check on `calltype`) — none replaces the
 // others. On every other backend (r2pipe, mock) cmd_noeval reports
 // unsupported and the exact same `cmd()` + spliced `@ <addr>` string this
@@ -218,7 +218,7 @@ void register_funcs_table(Session& s) {
       [](const FuncRow& r) { return r.name; },
       [be = s.backend_ptr()](FuncRow& r, const char* v) -> bool {
         if (!v || !*v) return false;
-        if (!json_utils::valid_flag_name(v)) {
+        if (!r_name_check(v.c_str())) {
           xsql::set_vtab_error(
               "funcs: name must be [A-Za-z0-9._$] (no spaces or r2 metacharacters)");
           return false;
@@ -371,7 +371,7 @@ void register_funcs_table(Session& s) {
       // Optional best-effort naming; a failed afn does not undo the af above.
       if (argc > 1 && !argv[1].is_null()) {
         const char* name = argv[1].as_c_str();
-        if (name && *name && json_utils::valid_flag_name(name)) {
+        if (name && *name && r_name_check(name.c_str())) {
           (void)dispatch_write(be, addr, std::string("afn ") + name);
         }
       }
