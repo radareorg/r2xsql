@@ -21,7 +21,7 @@
 // A full scan is that same enumeration: one `fj` (full dump) + one
 // `fs <name>; fj; fs *` PER FLAGSPACE to attribute the real space back onto
 // each flag by name. On the libr backend this reads `r_flag_foreach` directly
-// instead — measured in a private lab at 17-47x on a full scan across a real
+// instead — measured at 17-47x on a full scan across a real
 // binary, this project's own scale fixtures, and a real large DLL, with exact
 // field parity (including a pointer-equality quirk in radare2's own
 // `realname` field), before being ported (see `direct.hpp` for why the second
@@ -61,7 +61,7 @@
 // unbuilt and is not needed here.
 //
 // The rename is ALSO now C-API-backed on the libr flavor, a separate, later
-// port from the cmd_noeval rollout above: a private standalone lab
+// port from the cmd_noeval rollout above: a benchmark
 // measured a bulk workload (N up to 500 repeated renames, simulating a
 // bulk-rename script) at 48-62x over the CMD leg (the SAME
 // `r_core_call_str_at("fr ...")` dispatch this table already issues), with

@@ -1085,7 +1085,7 @@ class LibrApi : public Api {
   // `func_addr` stays 0 on every row here). Refills its read buffer from IO
   // whenever fewer than 32 bytes remain -- the same low-water threshold the
   // command path's own `pdj` loop uses (`disasm.c`, `i >= nb_bytes - 32`,
-  // confirmed by `pd-range-lab`), since the longest x86 instruction is under
+  // confirmed by measurement), since the longest x86 instruction is under
   // 16 bytes and every other arch this project targets is shorter still.
   void instructions_range(int64_t start_addr, int64_t count,
                           std::vector<InsnRow>& out) override {

@@ -20,8 +20,7 @@
 // pilot of this dispatch.
 //
 // `name`'s rename is explicitly REFUSED a C-API port, unlike the sibling
-// rename/set writes on `comments`/`flags`/`locals` (measured together in a
-// private standalone lab). Not a speed question — `afn`'s bulk-rename
+// rename/set writes on `comments`/`flags`/`locals` (measured together). Not a speed question — `afn`'s bulk-rename
 // cost clears the same 3x bar the others did. The refusal is PARITY: reading
 // `afn`'s actual handler (`__setFunctionName`, `cmd_anal.inc.c`) found it
 // does substantially more than `r_anal_function_rename` alone —
@@ -32,12 +31,12 @@
 //     reads back through `afcf`;
 //   * it fires the `on_fcn_rename` callback.
 // `r_anal_function_rename` touches ONLY the function's own name field and
-// hashtable entries — none of the above. The write-path lab proved this
-// live, not just from the source read: after an equal-sized bulk rename on
+// hashtable entries — none of the above. Measured live, not just
+// read from the source: after an equal-sized bulk rename on
 // two independent cores, the CMD leg's flag was renamed on 100% of rows and
 // the API leg's flag was renamed on 0% — a real, silent desync between
 // `funcs.name` and its own backing flag, the exact bug class already fixed
-// once this session for `flags.name` (`afn` creating a duplicate flag
+// for `flags.name` (`afn` creating a duplicate flag
 // instead of renaming in place). Porting this write would require
 // reimplementing `__setFunctionName` in full, which is not a "call the C
 // API instead" port at all — it is copying that problem in reverse. Stays
