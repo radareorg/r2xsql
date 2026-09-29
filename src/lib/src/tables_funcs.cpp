@@ -57,6 +57,7 @@
 #include "table_utils.hpp"
 
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 namespace r2xsql {
@@ -71,44 +72,118 @@ using direct::FuncRow;
 // when the query does not read it is worth roughly an order of magnitude.
 constexpr uint64_t kColUsedAll     = 1ull << 63;
 constexpr uint64_t kPrototypeColBit = 1ull << 8;
+// Same idea for `cost`: r_anal_function_cost decodes every instruction of
+// every function. On radare2 6.2 it is ~70% of a prototype-less scan, and a
+// join onto `funcs` (the `callers` view) rescans the table per outer row, so
+// paying it there pushed a real binary past the query timeout.
+constexpr uint64_t kCostColBit      = 1ull << 12;
 
-void build_funcs(Backend* be, std::vector<FuncRow>& rows, bool with_prototype) {
+// One `aflj` / `afij` function object -> FuncRow. Both commands emit the same
+// per-function object (fcn_print_json), so the scan and the single-function
+// lookup share this and cannot drift.
+FuncRow func_row_from_json(const nlohmann::json& j, bool with_prototype) {
+  FuncRow r;
+  r.addr     = json_utils::i64_addr(j);
+  r.name     = json_utils::str(j, "name");
+  r.size     = json_utils::i64(j, "size");
+  r.nbbs     = json_utils::i64(j, "nbbs");
+  r.edges    = json_utils::i64(j, "edges");
+  r.cc       = json_utils::i64(j, "cc");
+  r.type     = json_utils::str(j, "type");
+  r.calltype = json_utils::str(j, "calltype");
+  // One `aflj` carries every field, so on this path the signature is already
+  // paid for whether or not the query wants it.
+  if (with_prototype) r.prototype = json_utils::str(j, "signature");
+
+  r.end_addr   = json_utils::i64(j, "maxaddr");
+  r.ninstrs    = json_utils::i64(j, "ninstrs");
+  r.stackframe = json_utils::i64(j, "stackframe");
+  r.cost       = json_utils::i64(j, "cost");
+  r.tracecov   = json_utils::i64(j, "tracecov");
+  r.is_noreturn = json_utils::boolean(j, "noreturn");
+  // `is-pure` is the odd one out twice over: the key is hyphenated, and
+  // radare2 prints it through r_str_bool, so it arrives as the STRING
+  // "true"/"false" rather than a JSON boolean. Reading it as a bool yields
+  // false for every function.
+  r.is_pure      = json_utils::str(j, "is-pure") == "true";
+  r.is_recursive = json_utils::boolean(j, "recursive");
+  return r;
+}
+
+void build_funcs(Backend* be, std::vector<FuncRow>& rows, bool with_prototype,
+                 bool with_cost) {
   if (auto* api = be->direct()) {
-    api->funcs_scan(with_prototype, rows);
+    api->funcs_scan(with_prototype, with_cost, rows);
     return;
   }
   auto arr = be->cmd_json("aflj");
   if (!arr.is_array()) return;
   rows.reserve(arr.size());
-  for (auto& j : arr) {
-    FuncRow r;
-    r.addr     = json_utils::i64_addr(j);
-    r.name     = json_utils::str(j, "name");
-    r.size     = json_utils::i64(j, "size");
-    r.nbbs     = json_utils::i64(j, "nbbs");
-    r.edges    = json_utils::i64(j, "edges");
-    r.cc       = json_utils::i64(j, "cc");
-    r.type     = json_utils::str(j, "type");
-    r.calltype = json_utils::str(j, "calltype");
-    // One `aflj` carries every field, so on this path the signature is already
-    // paid for whether or not the query wants it.
-    if (with_prototype) r.prototype = json_utils::str(j, "signature");
-
-    r.end_addr   = json_utils::i64(j, "maxaddr");
-    r.ninstrs    = json_utils::i64(j, "ninstrs");
-    r.stackframe = json_utils::i64(j, "stackframe");
-    r.cost       = json_utils::i64(j, "cost");
-    r.tracecov   = json_utils::i64(j, "tracecov");
-    r.is_noreturn = json_utils::boolean(j, "noreturn");
-    // `is-pure` is the odd one out twice over: the key is hyphenated, and
-    // radare2 prints it through r_str_bool, so it arrives as the STRING
-    // "true"/"false" rather than a JSON boolean. Reading it as a bool yields
-    // false for every function.
-    r.is_pure      = json_utils::str(j, "is-pure") == "true";
-    r.is_recursive = json_utils::boolean(j, "recursive");
-    rows.push_back(std::move(r));
-  }
+  for (auto& j : arr) rows.push_back(func_row_from_json(j, with_prototype));
 }
+
+// The function STARTING at `addr`, or false. `afij @ X` resolves the function
+// CONTAINING X, so a mid-function X must be refused here: `addr = X` asks for
+// an entry point, and SQLite does not re-check a pushed-down constraint.
+bool func_at(Backend* be, int64_t addr, FuncRow& out) {
+  if (auto* api = be->direct()) {
+    return api->func_at(addr, /*with_prototype=*/true, /*with_cost=*/true, out);
+  }
+  auto info = be->cmd_json("afij @ " + json_utils::hex_addr(addr));
+  const nlohmann::json* func = nullptr;
+  if (info.is_array() && !info.empty() && info[0].is_object()) {
+    func = &info[0];
+  } else if (info.is_object()) {
+    func = &info;
+  }
+  if (!func || json_utils::i64_addr(*func) != addr) return false;
+  out = func_row_from_json(*func, /*with_prototype=*/true);
+  return true;
+}
+
+// Zero-or-one row for the `addr` equality pushdown. Column order MUST match
+// the builder in register_funcs_table: a filtered row has to equal, column for
+// column, the same row from a full scan.
+class FuncAtIterator : public xsql::RowIterator {
+  FuncRow row_;
+  bool have_ = false;
+  bool started_ = false;
+
+ public:
+  FuncAtIterator(Backend* be, int64_t addr) { have_ = func_at(be, addr, row_); }
+
+  bool next() override {
+    if (started_) { have_ = false; return false; }
+    started_ = true;
+    return have_;
+  }
+  bool eof() const override { return started_ && !have_; }
+  int64_t rowid() const override { return row_.addr; }
+
+  void column(xsql::FunctionContext& ctx, int col) override {
+    const FuncRow& r = row_;
+    switch (col) {
+      case 0:  ctx.result_int64(r.addr); break;
+      case 1:  ctx.result_text(r.name); break;
+      case 2:  ctx.result_int64(r.size); break;
+      case 3:  ctx.result_int64(r.nbbs); break;
+      case 4:  ctx.result_int64(r.edges); break;
+      case 5:  ctx.result_int64(r.cc); break;
+      case 6:  ctx.result_text(r.type); break;
+      case 7:  ctx.result_text(r.calltype); break;
+      case 8:  ctx.result_text(r.prototype); break;
+      case 9:  ctx.result_int64(r.end_addr); break;
+      case 10: ctx.result_int64(r.ninstrs); break;
+      case 11: ctx.result_int64(r.stackframe); break;
+      case 12: ctx.result_int64(r.cost); break;
+      case 13: ctx.result_int64(r.tracecov); break;
+      case 14: ctx.result_int64(r.is_noreturn ? 1 : 0); break;
+      case 15: ctx.result_int64(r.is_pure ? 1 : 0); break;
+      case 16: ctx.result_int64(r.is_recursive ? 1 : 0); break;
+      default: ctx.result_null(); break;
+    }
+  }
+};
 
 std::string compact_signature(std::string_view signature) {
   while (!signature.empty() &&
@@ -203,13 +278,23 @@ void register_funcs_table(Session& s) {
       return table_utils::quick_count(be, direct::Collection::Functions, "afl~?", 1000);
     })
     .cache_builder([be = s.backend_ptr()](std::vector<FuncRow>& rows) {
-      build_funcs(be, rows, /*with_prototype=*/true);
+      build_funcs(be, rows, /*with_prototype=*/true, /*with_cost=*/true);
     })
     .projection_cache_builder([be = s.backend_ptr()](std::vector<FuncRow>& rows,
                                                      uint64_t colUsed) {
       const bool with_prototype =
           (colUsed & kColUsedAll) || (colUsed & kPrototypeColBit);
-      build_funcs(be, rows, with_prototype);
+      const bool with_cost =
+          (colUsed & kColUsedAll) || (colUsed & kCostColBit);
+      build_funcs(be, rows, with_prototype, with_cost);
+    })
+    // Identity is the entry address, not the cache position. That makes a
+    // multi-row UPDATE/DELETE resolve each row by its own address (through the
+    // key-based snapshot below) and lets `WHERE addr = X` be a real lookup.
+    .rowid([](const FuncRow& r) -> int64_t { return r.addr; })
+    .snapshot_mutations()
+    .row_lookup([be = s.backend_ptr()](FuncRow& r, int64_t addr) -> bool {
+      return func_at(be, addr, r);
     })
     .column_int64("addr",  [](const FuncRow& r) { return r.addr; })
     // Writable: UPDATE funcs SET name='x' WHERE addr=... renames the function
@@ -338,6 +423,14 @@ void register_funcs_table(Session& s) {
     .column_int64("is_noreturn",  [](const FuncRow& r) -> int64_t { return r.is_noreturn ? 1 : 0; })
     .column_int64("is_pure",      [](const FuncRow& r) -> int64_t { return r.is_pure ? 1 : 0; })
     .column_int64("is_recursive", [](const FuncRow& r) -> int64_t { return r.is_recursive ? 1 : 0; })
+    // `WHERE addr = X` -- a JOIN probe or a correlated subquery (`NOT EXISTS
+    // (SELECT 1 FROM funcs f WHERE f.addr = x.from_func)`) -- is one function
+    // lookup, not a scan. A correlated subquery opens a fresh cursor per
+    // evaluation, so no cursor-lived cache can help it; this is what does.
+    .filter_eq("addr",
+      [be = s.backend_ptr()](int64_t addr) -> std::unique_ptr<xsql::RowIterator> {
+        return std::make_unique<FuncAtIterator>(be, addr);
+      }, 1.0, 1.0)
     .deletable([be = s.backend_ptr()](FuncRow& r) -> bool {
       // Remove the function definition at this address (analysis only).
       // `af-` takes the address as a plain trailing argument, not via `@`

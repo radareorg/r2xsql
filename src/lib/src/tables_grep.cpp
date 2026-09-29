@@ -69,7 +69,7 @@ void build_grep_rows(Backend* be, std::vector<GrepRow>& rows) {
                      parent, addr});
     };
     std::vector<direct::FuncRow> funcs;
-    api->funcs_scan(false, funcs);
+    api->funcs_scan(false, false, funcs);
     for (const auto& r : funcs) add("func", r.addr, r.name);
     std::vector<direct::FlagRow> flags;
     api->flags_scan(flags, nullptr, true);
