@@ -564,7 +564,15 @@ class Api {
   // eight fields are: radare2 builds it per function from the type database,
   // and it dominates the cost of this scan. The caller passes false whenever
   // the query does not read that column.
-  virtual void funcs_scan(bool with_prototype, std::vector<FuncRow>& out) = 0;
+  // `with_cost` gates r_anal_function_cost, which decodes every instruction
+  // and is most of a prototype-less scan (it left cost 0 when false).
+  virtual void funcs_scan(bool with_prototype, bool with_cost,
+                          std::vector<FuncRow>& out) = 0;
+
+  // `funcs` equality lookup -- the command path's `afij @ <addr>`, restricted
+  // to a function STARTING at `addr`. False when none does.
+  virtual bool func_at(int64_t addr, bool with_prototype, bool with_cost,
+                       FuncRow& out) = 0;
 
   // `blocks`/`cfg_edges`/`switch_tables`/`dominators`/`post_dominators`/
   // `loops` — ONE function's basic-block list, the command path's

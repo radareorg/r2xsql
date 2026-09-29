@@ -750,59 +750,81 @@ class LibrApi : public Api {
   //     what `aflj` prints.
   //
   // A field-by-field parity test against the command path guards all nine.
-  void funcs_scan(bool with_prototype, std::vector<FuncRow>& out) override {
+  void funcs_scan(bool with_prototype, bool with_cost,
+                  std::vector<FuncRow>& out) override {
     std::lock_guard lock(mu_);
     if (!core_ || !core_->anal) return;
     for_each_rlist<RAnalFunction>(core_->anal->fcns, [&](RAnalFunction* fcn) {
       FuncRow r;
-      r.addr = static_cast<int64_t>(fcn->addr);
-      if (char* name = r_core_anal_fcn_name(core_, fcn)) {
-        r.name = name;
-        free(name);
-      }
-      r.size = static_cast<int64_t>(r_anal_function_linear_size(fcn));
-      r.nbbs = static_cast<int64_t>(r_list_length(fcn->bbs));
-      int ebbs = 0;
-      r.edges = r_anal_function_count_edges(fcn, &ebbs);
-      r.cc    = r_anal_function_complexity(fcn);
-      if (const char* t = r_anal_functiontype_tostring(fcn->type)) r.type = t;
-      // `aflj` omits `calltype` entirely when radare2 has none, which reads
-      // back as the empty string — so an absent convention must stay empty
-      // rather than becoming some default.
-      if (const char* cc = r_anal_function_cc(fcn)) r.calltype = cc;
-
-      // The fields `aflj` emits and the table used to drop. Same calls
-      // `fcn_print_json` makes, in the same order.
-      r.end_addr    = static_cast<int64_t>(r_anal_function_max_addr(fcn));
-      r.ninstrs     = r_anal_function_instrcount(fcn);
-      r.stackframe  = fcn->maxstack;
-      r.cost        = r_anal_function_cost(fcn);
-      r.tracecov    = r_anal_function_coverage(fcn);
-      r.is_noreturn = fcn->is_noreturn;
-      r.is_pure     = r_anal_function_purity(fcn);
-      // `recursive` has no single call behind it: radare2 computes it inline
-      // (a static helper) as "does this function call itself". Same test here.
-      if (RVecAnalRef* calls = r_core_anal_fcn_get_calls(core_, fcn)) {
-        RAnalRef* callref;
-        R_VEC_FOREACH (calls, callref) {
-          if (callref->addr == fcn->addr) { r.is_recursive = true; break; }
-        }
-        RVecAnalRef_free(calls);
-      }
-      if (with_prototype) {
-        // `aflj` fills `signature` by running `afcf`, which is
-        // r_anal_function_format_sig with the function's own name (the NULL
-        // default below), then trimming. Note this is a DIFFERENT function
-        // from r_anal_function_get_signature_string, which formats its own way.
-        if (char* sig = r_anal_function_format_sig(core_->anal, fcn, nullptr,
-                                                   nullptr, nullptr, nullptr)) {
-          r_str_trim(sig);
-          r.prototype = sig;
-          free(sig);
-        }
-      }
+      fill_func_row(fcn, with_prototype, with_cost, r);
       out.push_back(std::move(r));
     });
+  }
+
+  // One function, by its exact START address: the `WHERE addr = X` lookup a
+  // JOIN or correlated subquery onto `funcs` issues per outer row. An address
+  // inside a function (not its entry) answers false, as `addr = X` requires.
+  bool func_at(int64_t addr, bool with_prototype, bool with_cost,
+               FuncRow& out) override {
+    std::lock_guard lock(mu_);
+    if (!core_ || !core_->anal) return false;
+    RAnalFunction* fcn =
+        r_anal_get_function_at(core_->anal, static_cast<ut64>(addr));
+    if (!fcn) return false;
+    fill_func_row(fcn, with_prototype, with_cost, out);
+    return true;
+  }
+
+  // Reads one function into a FuncRow -- shared by `funcs_scan` and `func_at`
+  // so a filtered row and a scanned row can never drift. Caller holds `mu_`.
+  void fill_func_row(RAnalFunction* fcn, bool with_prototype, bool with_cost,
+                     FuncRow& r) {
+    r.addr = static_cast<int64_t>(fcn->addr);
+    if (char* name = r_core_anal_fcn_name(core_, fcn)) {
+      r.name = name;
+      free(name);
+    }
+    r.size = static_cast<int64_t>(r_anal_function_linear_size(fcn));
+    r.nbbs = static_cast<int64_t>(r_list_length(fcn->bbs));
+    int ebbs = 0;
+    r.edges = r_anal_function_count_edges(fcn, &ebbs);
+    r.cc    = r_anal_function_complexity(fcn);
+    if (const char* t = r_anal_functiontype_tostring(fcn->type)) r.type = t;
+    // `aflj` omits `calltype` entirely when radare2 has none, which reads
+    // back as the empty string — so an absent convention must stay empty
+    // rather than becoming some default.
+    if (const char* cc = r_anal_function_cc(fcn)) r.calltype = cc;
+
+    // The fields `aflj` emits and the table used to drop. Same calls
+    // `fcn_print_json` makes, in the same order.
+    r.end_addr    = static_cast<int64_t>(r_anal_function_max_addr(fcn));
+    r.ninstrs     = r_anal_function_instrcount(fcn);
+    r.stackframe  = fcn->maxstack;
+    if (with_cost) r.cost = r_anal_function_cost(fcn);
+    r.tracecov    = r_anal_function_coverage(fcn);
+    r.is_noreturn = fcn->is_noreturn;
+    r.is_pure     = r_anal_function_purity(fcn);
+    // `recursive` has no single call behind it: radare2 computes it inline
+    // (a static helper) as "does this function call itself". Same test here.
+    if (RVecAnalRef* calls = r_core_anal_fcn_get_calls(core_, fcn)) {
+      RAnalRef* callref;
+      R_VEC_FOREACH (calls, callref) {
+        if (callref->addr == fcn->addr) { r.is_recursive = true; break; }
+      }
+      RVecAnalRef_free(calls);
+    }
+    if (with_prototype) {
+      // `aflj` fills `signature` by running `afcf`, which is
+      // r_anal_function_format_sig with the function's own name (the NULL
+      // default below), then trimming. Note this is a DIFFERENT function
+      // from r_anal_function_get_signature_string, which formats its own way.
+      if (char* sig = r_anal_function_format_sig(core_->anal, fcn, nullptr,
+                                                 nullptr, nullptr, nullptr)) {
+        r_str_trim(sig);
+        r.prototype = sig;
+        free(sig);
+      }
+    }
   }
 
   // Reads one RAnalBlock into BlockData — shared by both `blocks_in_func` and
