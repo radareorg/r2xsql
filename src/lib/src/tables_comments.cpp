@@ -145,7 +145,8 @@ void register_comments_table(Session& s) {
         xsql::set_vtab_error("comments: INSERT requires addr and text");
         return false;
       }
-      const int64_t addr = argv[0].as_int64();
+      int64_t addr = 0;
+      if (!table_utils::exact_write_int64(argv[0], "comments: addr", addr)) return false;
       const char* text = argv[2].as_c_str();
       const std::string body = text ? text : "";
       if (auto* api = be->direct()) {

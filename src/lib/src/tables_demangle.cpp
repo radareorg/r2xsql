@@ -72,8 +72,10 @@ void register_demangle_table(Session& s) {
     for (const auto& a : args) {
       if (a.op != xsql::ConstraintOp::Eq) continue;
       switch (a.column_index) {
-        case kMangled: { const char* v = a.value.as_c_str(); if (v) mangled = v; break; }
-        case kLang:    { const char* v = a.value.as_c_str(); if (v) lang = v; break; }
+        // omit=1: compared like a native TEXT column (xsql::exact_text), so a
+        // NULL or a blob yields no rows rather than an empty-string lookup.
+        case kMangled: { auto v = xsql::exact_text(a.value); if (!v) return nullptr; mangled = std::move(*v); break; }
+        case kLang:    { auto v = xsql::exact_text(a.value); if (!v) return nullptr; lang = std::move(*v); break; }
         default: break;
       }
     }

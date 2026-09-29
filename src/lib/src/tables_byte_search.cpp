@@ -10,7 +10,6 @@
 // client-side so no global r2 search config is mutated.
 
 #include <cstdint>
-#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -158,14 +157,13 @@ class ByteSearchGen : public xsql::Generator<ByteSearchRow> {
  public:
   ByteSearchGen(Backend* be, const std::string& command_token,
                 size_t pattern_size,
-                int64_t start, int64_t end, int64_t max_results) {
+                const xsql::Int64KeyRange& window, int64_t max_results) {
     if (command_token.empty() || pattern_size == 0) return;
     auto hits = be->cmd_json("/xj " + command_token);
     if (!hits.is_array()) return;
     for (auto& h : hits) {
       const int64_t addr = json_utils::i64(h, "addr");
-      if (start >= 0 && addr < start) continue;
-      if (end >= 0 && addr >= end) continue;
+      if (!window.contains(addr)) continue;
       ByteSearchRow r;
       r.addr = addr;
       r.matched_bytes = full_match_bytes(be, h, addr, pattern_size);
@@ -189,48 +187,59 @@ void register_byte_search_table(Session& s) {
   auto make_gen = [be = s.backend_ptr()](
       const std::vector<xsql::GeneratorConstraintArg>& args)
       -> std::unique_ptr<xsql::Generator<ByteSearchRow>> {
+    // omit=1 on every constraint below: SQLite does not re-check these
+    // values, so each is compared the way a native column would
+    // (xsql::exact_* / Int64KeyRange). A value nothing can equal (10.5 for an
+    // integer, NULL, a blob) yields no rows rather than a truncated search.
+    //
+    // The window is in the addr column's own order -- signed int64, the way
+    // SQLite sorts it -- so a ut64 address at or above 2^63 (reported
+    // negative) is bounded like any other, never mistaken for "unset".
+    // start_addr is inclusive, end_addr exclusive.
     std::string pattern;
-    int64_t start = -1, end = -1, max_results = 0;
+    xsql::Int64KeyRange window;
+    int64_t max_results = 0;
     for (const auto& a : args) {
-      if (a.op != xsql::ConstraintOp::Eq) {
-        // addr range predicates (Ge/Gt lower, Lt/Le upper) tighten bounds.
-        if (a.column_index == kAddr) {
-          const int64_t v = a.value.as_int64();
-          if (a.op == xsql::ConstraintOp::Ge) start = (start < 0) ? v : (v > start ? v : start);
-          else if (a.op == xsql::ConstraintOp::Gt) {
-            if (v == std::numeric_limits<int64_t>::max()) {
-              start = v;
-              end = v;
-            } else {
-              int64_t w = v + 1;
-              start = (start < 0) ? w : (w > start ? w : start);
-            }
-          }
-          else if (a.op == xsql::ConstraintOp::Lt) end = (end < 0) ? v : (v < end ? v : end);
-          else if (a.op == xsql::ConstraintOp::Le &&
-                   v != std::numeric_limits<int64_t>::max()) {
-            int64_t w = v + 1;
-            end = (end < 0) ? w : (w < end ? w : end);
-          }
-        }
-        continue;
-      }
       switch (a.column_index) {
-        case kPattern: { const char* p = a.value.as_c_str(); if (p) pattern = p; break; }
-        case kStart: start = a.value.as_int64(); break;
-        case kEnd: end = a.value.as_int64(); break;
-        case kMaxResults: max_results = a.value.as_int64(); break;
+        case kAddr:
+          window.constrain(a.op, a.value);
+          break;
+        case kPattern: {
+          auto v = xsql::exact_text(a.value);
+          if (!v) return nullptr;
+          pattern = std::move(*v);
+          break;
+        }
+        case kStart: {
+          const auto v = xsql::exact_int64(a.value);
+          if (!v) return nullptr;
+          window.constrain(xsql::ConstraintOp::Ge, *v);
+          break;
+        }
+        case kEnd: {
+          const auto v = xsql::exact_int64(a.value);
+          if (!v) return nullptr;
+          window.constrain(xsql::ConstraintOp::Lt, *v);
+          break;
+        }
+        case kMaxResults: {
+          const auto v = xsql::exact_int64(a.value);
+          if (!v) return nullptr;
+          max_results = *v;
+          break;
+        }
         default: break;
       }
     }
+    if (window.empty()) return nullptr;
     ParsedPattern parsed = parse_pattern(pattern);
     if (!parsed.error.empty()) {
       xsql::set_vtab_error(parsed.error);
       return std::make_unique<ByteSearchGen>(
-          be, std::string{}, 0, 0, 0, 0);
+          be, std::string{}, 0, window, 0);
     }
     return std::make_unique<ByteSearchGen>(
-        be, parsed.command_token, parsed.byte_count, start, end, max_results);
+        be, parsed.command_token, parsed.byte_count, window, max_results);
   };
 
   auto def = xsql::generator_table<ByteSearchRow>("byte_search")

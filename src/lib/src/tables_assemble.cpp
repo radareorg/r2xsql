@@ -233,11 +233,24 @@ void register_assemble_table(Session& s) {
       -> std::unique_ptr<xsql::Generator<AssembleRow>> {
     std::string asm_text;
     int64_t addr = 0;
+    // omit=1: SQLite does not re-check these values, so each is compared the
+    // way a native column would (xsql::exact_*): a value nothing can equal
+    // (10.5 for an integer, NULL, a blob) yields no rows.
     for (const auto& a : args) {
       if (a.op != xsql::ConstraintOp::Eq) continue;
       switch (a.column_index) {
-        case kAAsm:  { const char* v = a.value.as_c_str(); if (v) asm_text = v; break; }
-        case kAAddr: addr = a.value.as_int64(); break;
+        case kAAsm: {
+          auto v = xsql::exact_text(a.value);
+          if (!v) return nullptr;
+          asm_text = std::move(*v);
+          break;
+        }
+        case kAAddr: {
+          const auto v = xsql::exact_int64(a.value);
+          if (!v) return nullptr;
+          addr = *v;
+          break;
+        }
         default: break;
       }
     }
@@ -273,11 +286,24 @@ void register_search_asm_table(Session& s) {
       -> std::unique_ptr<xsql::Generator<SearchAsmRow>> {
     std::string asm_text;
     int64_t max_results = 0;
+    // omit=1: SQLite does not re-check these values, so each is compared the
+    // way a native column would (xsql::exact_*): a value nothing can equal
+    // (10.5 for an integer, NULL, a blob) yields no rows.
     for (const auto& a : args) {
       if (a.op != xsql::ConstraintOp::Eq) continue;
       switch (a.column_index) {
-        case kSAsm: { const char* v = a.value.as_c_str(); if (v) asm_text = v; break; }
-        case kSMaxResults: max_results = a.value.as_int64(); break;
+        case kSAsm: {
+          auto v = xsql::exact_text(a.value);
+          if (!v) return nullptr;
+          asm_text = std::move(*v);
+          break;
+        }
+        case kSMaxResults: {
+          const auto v = xsql::exact_int64(a.value);
+          if (!v) return nullptr;
+          max_results = *v;
+          break;
+        }
         default: break;
       }
     }

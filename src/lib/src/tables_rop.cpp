@@ -401,26 +401,35 @@ void register_rop_gadgets_table(Session& s) {
       const std::vector<xsql::GeneratorConstraintArg>& args)
       -> std::unique_ptr<xsql::Generator<GadgetRow>> {
     SearchParams p;
+    // omit=1: SQLite does not re-check these values, so each is compared the
+    // way a native column would (xsql::exact_*): a value nothing can equal
+    // (10.5 for an integer, NULL, a blob) yields no rows.
     for (const auto& a : args) {
       switch (a.column_index) {
         case kGPattern: {
-          const char* v = a.value.as_c_str();
-          if (v) p.pattern = v;
+          auto v = xsql::exact_text(a.value);
+          if (!v) return nullptr;
+          p.pattern = std::move(*v);
           break;
         }
         case kGTerminator: {
-          const char* v = a.value.as_c_str();
-          if (v && *v) p.terminator = v;
+          auto v = xsql::exact_text(a.value);
+          if (!v) return nullptr;
+          if (!v->empty()) p.terminator = std::move(*v);
           break;
         }
         case kGKlass: {
-          const char* v = a.value.as_c_str();
-          if (v) p.klass = v;
+          auto v = xsql::exact_text(a.value);
+          if (!v) return nullptr;
+          p.klass = std::move(*v);
           break;
         }
-        case kGMaxResults:
-          p.max_results = a.value.as_int64();
+        case kGMaxResults: {
+          const auto v = xsql::exact_int64(a.value);
+          if (!v) return nullptr;
+          p.max_results = *v;
           break;
+        }
         default:
           break;
       }
@@ -455,26 +464,35 @@ void register_rop_gadget_instructions_table(Session& s) {
       const std::vector<xsql::GeneratorConstraintArg>& args)
       -> std::unique_ptr<xsql::Generator<GadgetInstrRow>> {
     SearchParams p;
+    // omit=1: SQLite does not re-check these values, so each is compared the
+    // way a native column would (xsql::exact_*): a value nothing can equal
+    // (10.5 for an integer, NULL, a blob) yields no rows.
     for (const auto& a : args) {
       switch (a.column_index) {
         case kGiPattern: {
-          const char* v = a.value.as_c_str();
-          if (v) p.pattern = v;
+          auto v = xsql::exact_text(a.value);
+          if (!v) return nullptr;
+          p.pattern = std::move(*v);
           break;
         }
         case kGiTerminator: {
-          const char* v = a.value.as_c_str();
-          if (v && *v) p.terminator = v;
+          auto v = xsql::exact_text(a.value);
+          if (!v) return nullptr;
+          if (!v->empty()) p.terminator = std::move(*v);
           break;
         }
         case kGiKlass: {
-          const char* v = a.value.as_c_str();
-          if (v) p.klass = v;
+          auto v = xsql::exact_text(a.value);
+          if (!v) return nullptr;
+          p.klass = std::move(*v);
           break;
         }
-        case kGiMaxResults:
-          p.max_results = a.value.as_int64();
+        case kGiMaxResults: {
+          const auto v = xsql::exact_int64(a.value);
+          if (!v) return nullptr;
+          p.max_results = *v;
           break;
+        }
         default:
           break;
       }

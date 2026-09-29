@@ -15,6 +15,8 @@
 #include <string>
 #include <string_view>
 
+#include <xsql/vtable.hpp>
+
 #include "direct.hpp"
 #include "json_utils.hpp"
 
@@ -55,6 +57,22 @@ inline std::string command_error_text(const std::string& out) {
     if (lo.find(m) != std::string::npos) return trim_ascii(out);
   }
   return {};
+}
+
+// An integer INSERT argument (an address, a size), taken only when it is
+// exactly an integer (xsql::exact_int64: 4096, 4096.0 and '4096' all are).
+// SQLite applies no column affinity to a virtual table's INSERT values, so
+// as_int64() would write 'main' at address 0 and 4096.5 at 4096; this refuses
+// both with a vtab error naming `what` instead.
+inline bool exact_write_int64(const xsql::FunctionArg& v, std::string_view what,
+                              int64_t& out) {
+  const auto exact = xsql::exact_int64(v);
+  if (!exact) {
+    xsql::set_vtab_error(std::string(what) + " must be an integer");
+    return false;
+  }
+  out = *exact;
+  return true;
 }
 
 inline bool resolve_func_owner(Backend* be, int64_t addr, int64_t& out) {
