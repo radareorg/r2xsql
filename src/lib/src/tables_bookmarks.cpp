@@ -175,7 +175,8 @@ void register_bookmarks_table(Session& s) {
         xsql::set_vtab_error("bookmarks: INSERT requires addr and name");
         return false;
       }
-      const int64_t addr = argv[1].as_int64();
+      int64_t addr = 0;
+      if (!table_utils::exact_write_int64(argv[1], "bookmarks: addr", addr)) return false;
       const char* name = argv[2].as_c_str();
       if (!name || !*name) {
         xsql::set_vtab_error("bookmarks: INSERT requires a non-empty name");

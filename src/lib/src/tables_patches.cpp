@@ -294,7 +294,8 @@ void register_patches_table(Session& s) {
         return false;
       }
 
-      const int64_t addr = argv[0].as_int64();
+      int64_t addr = 0;
+      if (!table_utils::exact_write_int64(argv[0], "patches: addr", addr)) return false;
       const bool have_hex = argc > 3 && !argv[3].is_null();
       const bool have_asm = argc > 5 && !argv[5].is_null();
       if (have_hex == have_asm) {

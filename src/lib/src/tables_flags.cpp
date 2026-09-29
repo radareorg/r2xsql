@@ -255,7 +255,8 @@ void register_flags_table(Session& s) {
         xsql::set_vtab_error("flags: INSERT requires addr and name");
         return false;
       }
-      const int64_t addr = argv[0].as_int64();
+      int64_t addr = 0;
+      if (!table_utils::exact_write_int64(argv[0], "flags: addr", addr)) return false;
       const char* name = argv[2].as_c_str();
       if (!name || !*name) {
         xsql::set_vtab_error("flags: INSERT requires a non-empty name");

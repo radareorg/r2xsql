@@ -373,8 +373,13 @@ void register_instructions_table(Session& s) {
     .parametric_filter_projection({"start_addr", "count"},
       [be = s.backend_ptr()](const std::vector<xsql::FunctionArg>& args, uint64_t col_used)
           -> std::unique_ptr<xsql::Generator<InsnRow>> {
-        const int64_t start_addr = args[0].as_int64();
-        const int64_t count = args[1].as_int64();
+        // omit=1: exact integers only (xsql::exact_int64); 4096.5 or NULL is
+        // no rows, never a walk from a truncated address.
+        const auto start_opt = xsql::exact_int64(args[0]);
+        const auto count_opt = xsql::exact_int64(args[1]);
+        if (!start_opt || !count_opt) return nullptr;
+        const int64_t start_addr = *start_opt;
+        const int64_t count = *count_opt;
         if (!needs_render(col_used)) {
           if (auto* api = be->direct()) {
             return std::make_unique<InsnsVecGen>(insns_range_api(api, start_addr, count));

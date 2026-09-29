@@ -164,11 +164,25 @@ void register_read_cstr_table(Session& s) {
     bool have_addr = false;
     int64_t addr = 0;
     int64_t max_len = kDefaultMaxLen;
+    // omit=1: SQLite does not re-check these values, so each is compared the
+    // way a native column would (xsql::exact_*): a value nothing can equal
+    // (10.5 for an integer, NULL, a blob) yields no rows.
     for (const auto& a : args) {
       if (a.op != xsql::ConstraintOp::Eq) continue;
       switch (a.column_index) {
-        case kAddr:   addr = a.value.as_int64(); have_addr = true; break;
-        case kMaxLen: max_len = a.value.as_int64(); break;
+        case kAddr: {
+          const auto v = xsql::exact_int64(a.value);
+          if (!v) return nullptr;
+          addr = *v;
+          have_addr = true;
+          break;
+        }
+        case kMaxLen: {
+          const auto v = xsql::exact_int64(a.value);
+          if (!v) return nullptr;
+          max_len = *v;
+          break;
+        }
         default: break;
       }
     }

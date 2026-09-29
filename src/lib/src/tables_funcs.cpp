@@ -456,7 +456,8 @@ void register_funcs_table(Session& s) {
         xsql::set_vtab_error("funcs: INSERT requires addr");
         return false;
       }
-      const int64_t addr = argv[0].as_int64();
+      int64_t addr = 0;
+      if (!table_utils::exact_write_int64(argv[0], "funcs: addr", addr)) return false;
       const std::string at = json_utils::hex_addr(addr);
       if (std::string e = table_utils::command_error_text(dispatch_write(be, addr, "af")); !e.empty()) {
         xsql::set_vtab_error("funcs: INSERT failed to define a function at " + at + ": " + e);

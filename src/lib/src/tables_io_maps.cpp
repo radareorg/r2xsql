@@ -86,8 +86,11 @@ void register_io_maps_table(Session& s) {
         xsql::set_vtab_error("io_maps: INSERT requires start_addr and end_addr");
         return false;
       }
-      const int64_t start = argv[0].as_int64();
-      const int64_t end = argv[1].as_int64();
+      int64_t start = 0, end = 0;
+      if (!table_utils::exact_write_int64(argv[0], "io_maps: start_addr", start) ||
+          !table_utils::exact_write_int64(argv[1], "io_maps: end_addr", end)) {
+        return false;
+      }
       if (end <= start) {
         xsql::set_vtab_error("io_maps: end_addr must be > start_addr");
         return false;
@@ -105,7 +108,11 @@ void register_io_maps_table(Session& s) {
           return false;
         }
       }
-      const int64_t paddr = (argc > 4 && !argv[4].is_null()) ? argv[4].as_int64() : 0;
+      int64_t paddr = 0;
+      if (argc > 4 && !argv[4].is_null() &&
+          !table_utils::exact_write_int64(argv[4], "io_maps: paddr", paddr)) {
+        return false;
+      }
       std::string out = be->cmd(make_om_command(start, end, paddr, perm, name));
       if (std::string e = table_utils::command_error_text(out); !e.empty()) {
         xsql::set_vtab_error("io_maps: INSERT failed (check a file is open and "

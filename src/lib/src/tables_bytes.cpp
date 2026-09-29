@@ -395,7 +395,14 @@ void register_bytes_table(Session& s) {
           xsql::set_vtab_error("bytes: UPDATE value cannot be set to NULL");
           return false;
         }
-        const int64_t iv = v.as_int64();
+        // Exact integers only: 65.5 is refused, never truncated to 65.
+        const auto exact = xsql::exact_int64(v);
+        if (!exact) {
+          xsql::set_vtab_error(
+              "bytes: UPDATE value must be an integer between 0 and 255");
+          return false;
+        }
+        const int64_t iv = *exact;
         if (iv < 0 || iv > 255) {
           xsql::set_vtab_error(
               "bytes: UPDATE value must be an integer between 0 and 255 (got " +
