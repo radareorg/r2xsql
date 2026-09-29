@@ -29,7 +29,7 @@
 //
 // The WRITE path (this table's `text` UPDATE and INSERT) is ALSO now
 // C-API-backed on the libr flavor, a separate, later port from both of the
-// above: a private standalone lab measured a bulk workload (N=500 repeated
+// above: a benchmark measured a bulk workload (N=500 repeated
 // sets, simulating a bulk-annotate script) at 30-40x over the CMD leg
 // (`r_core_call_str_at("CCu base64:...")`, the SAME dispatch this table
 // already issues), with exact field/behavior parity once the API leg

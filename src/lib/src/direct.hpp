@@ -185,8 +185,8 @@ struct BlockData {
 // sliced by `asmop.size` (a SEPARATE ASM-side decode, `r_asm_disassemble`).
 // This producer calls only `r_anal_op` (never `r_asm_disassemble` -- that
 // call exists purely to build the mnemonic), reading `bytes` from its own
-// per-block/per-range read buffer sliced by `op.size` -- `instructions-api-
-// lab/FINDINGS.md` measured the two decoders never disagreeing on length or
+// per-block/per-range read buffer sliced by `op.size` -- measured, the two decoders never
+// disagreed on length or
 // on which addresses fail to decode, across five real/generated fixtures,
 // but this is a live risk to keep in mind if a future radare2 arch plugin
 // ever changes that.
@@ -284,7 +284,7 @@ struct FlagRow {
 // `RBinString` at all -- it is resolved per row via `r_bin_get_section_at`;
 // `vaddr` is rebased through `r_bin_get_vaddr`, not read off the raw member;
 // `type` is rendered through `r_bin_string_type`, not the raw char code.
-// Measured in a private lab at 26-86x across a real PE, a large generated
+// Measured at 26-86x across a real PE, a large generated
 // fixture, and a real large DLL, with exact field parity.
 struct StringRow {
   int64_t     addr = 0;
@@ -304,7 +304,7 @@ struct StringRow {
 // (`r_str_srwx_i`), not the raw permission bitmask, and `addr` silently
 // downgrades to NO rebase for a section lacking the READ permission bit --
 // a real per-row branch on the section's own `perm`, not a fixed `va` mode
-// for the whole table. Measured in a private lab at 19-58x (`sections`) and
+// for the whole table. Measured at 19-58x (`sections`) and
 // 58-195x (`segments`, vacuous on every PE fixture tested -- no PE section
 // sets `is_segment`, so this rides `sections`' proven-live shared producer)
 // with exact field parity.
@@ -326,7 +326,7 @@ struct SectionRow {
 // `RBinInfo::has_lit`. All of this goes through PUBLIC `R_API` calls, never
 // a private/static helper -- the producer calls the same functions the
 // emitter calls, it does not reimplement demangling or address resolution.
-// Measured in a private lab at 10-13x across a real PE, a large generated
+// Measured at 10-13x across a real PE, a large generated
 // fixture, and a real 1986-import DLL, with exact field parity (the
 // genuine C++-demangling branch itself is unexercised by any available
 // fixture -- radare2 is a C codebase, so every fixture's imports are
@@ -342,9 +342,8 @@ struct ImportRow {
 
 // One row of `comments` -- the command path's `CCj`, a single full-scan
 // command (not an N+1-per-function shape, unlike `funcs`/`xrefs`/`locals`/the
-// blocks cluster -- the same "one command already" shape `binary-meta-lab`
-// found for `strings`/`sections`/`imports`/`entries`). Measured in a private
-// lab at 5-70x with exact field parity, including two quirks found by
+// blocks cluster -- the same "one command already" shape measured for
+// `strings`/`sections`/`imports`/`entries`). Measured at 5-70x with exact field parity, including two quirks found by
 // reading `r_meta_print` (`libr/anal/meta.c`) rather than assumed from the
 // struct:
 //
@@ -376,7 +375,7 @@ struct CommentRow {
 // (exports), merged by address (this project's own `merge_row`, preserved
 // exactly on the API leg). `iej`'s JSON never emits `name`/`size`/`bind`
 // (confirmed by reading `bin_entry`'s JSON block field-by-field) but DOES
-// emit `type` via `r_bin_entry_type_string` -- an early lab probe omitted
+// emit `type` via `r_bin_entry_type_string` -- an early probe omitted
 // this and showed a real parity failure before the producer was corrected.
 // `entries.name` is NOT the demangled name despite living one call away from
 // a full demangling pipeline: reading `bin_symbols`' JSON emit block found
@@ -384,7 +383,7 @@ struct CommentRow {
 // name), UTF8-escaped -- the demangled form goes to a separate `"demname"`
 // key this table never reads. `its_an_export` (`!is_imported && bind ==
 // "GLOBAL"`) is a private/static helper in radare2 but trivial to reproduce
-// without calling it. Measured in a private lab at 9-78x across a real PE,
+// without calling it. Measured at 9-78x across a real PE,
 // a large generated fixture, and a real 755-export DLL, with exact
 // field parity.
 struct EntryRow {
@@ -625,7 +624,7 @@ class Api {
   // `fi->{addr,size,name,realname,space->name}` directly -- no `fs`
   // selection, no per-space re-listing, no session-state save/restore at
   // all, since `r_flag_foreach` is not scoped by the currently-selected
-  // flagspace the way the `fj` COMMAND is. Measured in a private lab at
+  // flagspace the way the `fj` COMMAND is. Measured at
   // 17-47x on a full scan across a real binary and generated fixtures, plus
   // a real large DLL, with exact field parity -- including the pointer-
   // equality `realname` quirk -- before being ported.
@@ -667,7 +666,7 @@ class Api {
   //
   // Unlike every READ producer above (an N+1-per-row scan, where command
   // dispatch is paid once per row), a single write is one command either
-  // way -- there is no N+1 shape to collapse. A private standalone lab
+  // way -- there is no N+1 shape to collapse. A benchmark
   // measured a BULK workload instead (N repeated writes in a loop,
   // simulating a bulk-rename/bulk-annotate script) and found each of the
   // four operations examined pays a real, per-call fixed cost for

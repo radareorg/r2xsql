@@ -13,7 +13,7 @@
 //
 // A full scan enumerates functions (`aflj`) and pulls each one's vars
 // (`afvj @ <addr>`). On the libr backend this reads `fcn->vars` directly
-// instead — measured in a private lab at 50-780x on a full scan across a real
+// instead — measured at 50-780x on a full scan across a real
 // binary and generated fixtures, with exact field parity, before being ported
 // (see `direct.hpp` for why the second producer lives in another TU). The
 // command path remains the only implementation r2pipe can have, and it also
@@ -26,13 +26,13 @@
 //
 // The WRITE side (this table's `name` rename and `type` retype) is ALSO now
 // C-API-backed on the libr flavor, a separate, later port from the read-side
-// scan above: a private standalone lab measured a bulk workload (N
+// scan above: a benchmark measured a bulk workload (N
 // repeated renames/retypes, simulating a bulk-retype script) at 78-150x over
 // the CMD leg. Reading `cmd_anal.inc.c`'s `afvn`/`afvt` handlers found each is
 // nothing more than `r_anal_function_get_var_byname` + `r_anal_var_rename`/
 // `r_anal_var_set_type` — the SAME calls the API leg makes directly, with no
 // other side effect (unlike `funcs.name`'s `afn`, refused for exactly this
-// reason on that table) — so parity is exact, proven live in the lab. The
+// reason on that table) — so parity is exact, proven live. The
 // single-function readback (`local_readback_matches`, below) stays
 // command-based on BOTH legs, same as `funcs`'/`flags`' own per-write
 // readbacks — this port only moves the WRITE call itself. On every non-libr
