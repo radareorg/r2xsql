@@ -86,7 +86,9 @@ void register_bininfo_table(Session& s) {
       r.has_pi     = opt_bool01(info, "pic");
       r.default_cc = opt_str(info, "cc");
 
-      r.file = table_sources::file_path(be);
+      // No file is SQL NULL, not '' -- the same "unknown reads NULL" contract
+      // the havecode-gated columns keep.
+      if (auto path = table_sources::file_path(be); !path.empty()) r.file = std::move(path);
 
       rows.push_back(std::move(r));
     })

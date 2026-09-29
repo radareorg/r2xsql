@@ -33,7 +33,11 @@ namespace r2xsql {
 // radare2 expects its data files.
 LibrDataDirStatus libr_data_dir_status_at(const char* prefix) {
   LibrDataDirStatus st;
-  char* pfx = r_sys_prefix(prefix);
+  // An explicit prefix is probed as given. Do NOT route it through
+  // r_sys_prefix(): up to radare2 6.1 that returned its argument, but from
+  // 6.2 it returns the executable-derived prefix (and exports R2_PREFIX=arg
+  // as a side effect), so the probe silently checked the wrong directory.
+  char* pfx = prefix ? strdup(prefix) : r_sys_prefix(nullptr);
   if (pfx) {
     char* dir = r_file_new(pfx, R2_SDB_FCNSIGN, nullptr);  // <prefix>/share/fcnsign
     if (dir) {

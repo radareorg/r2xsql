@@ -469,7 +469,9 @@ class LibrApi : public Api {
     const bool cache = r_config_get_b(core_->config, "bin.cache");
     if ((apply || cache) && core_->bin->cur) {
       if (cache) {
-        if (!(core_->io->cachemode & R_PERM_W)) r_config_set_b(core_->config, "io.cache", true);
+        // `cachemode` is a bool, so radare2's own `cachemode & R_PERM_W` in
+        // cbin.c is always 0 and always sets io.cache; test the bool itself.
+        if (!core_->io->cachemode) r_config_set_b(core_->config, "io.cache", true);
         core_->bin->iob.overlay_write_at = apply ? r_io_cache_write_at : r_io_write_at;
       }
       relocs = r_bin_patch_relocs(core_->bin->cur);
