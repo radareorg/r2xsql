@@ -105,7 +105,7 @@ else()
   message(STATUS "r2xsql: fetching libxsql from GitHub")
   FetchContent_Declare(libxsql
     GIT_REPOSITORY https://github.com/0xeb/libxsql.git
-    GIT_TAG        main
+    GIT_TAG        v1.0.21  # needs 1.0.21: exact_int64 / exact_text / Int64KeyRange
     GIT_SHALLOW    TRUE)
   FetchContent_MakeAvailable(libxsql)
 endif()
