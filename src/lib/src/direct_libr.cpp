@@ -434,7 +434,7 @@ class LibrApi : public Api {
     std::lock_guard lock(mu_);
     if (!core_ || !core_->bin) return;
     RIODesc* desc = r_io_desc_get(core_->io, r_io_fd_get_current(core_->io));
-    if (desc && r_io_desc_is_dbg(desc)) return;
+    if (desc && r_io_desc_info(desc).isdbg) return;
     RVecRBinReloc* relocs = r_bin_get_relocs(core_->bin);
     // `irj` applies pending relocations when requested, including the IO
     // cache/overlay routing used for relocatable object files.

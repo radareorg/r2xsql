@@ -50,6 +50,7 @@
 #include <cctype>
 #include <string_view>
 
+#include <r_util.h>
 #include "tables.hpp"
 #include "direct.hpp"
 #include "json_utils.hpp"
@@ -218,7 +219,7 @@ void register_funcs_table(Session& s) {
       [](const FuncRow& r) { return r.name; },
       [be = s.backend_ptr()](FuncRow& r, const char* v) -> bool {
         if (!v || !*v) return false;
-        if (!r_name_check(v.c_str())) {
+        if (!r_name_check(v)) {
           xsql::set_vtab_error(
               "funcs: name must be [A-Za-z0-9._$] (no spaces or r2 metacharacters)");
           return false;
@@ -371,7 +372,7 @@ void register_funcs_table(Session& s) {
       // Optional best-effort naming; a failed afn does not undo the af above.
       if (argc > 1 && !argv[1].is_null()) {
         const char* name = argv[1].as_c_str();
-        if (name && *name && r_name_check(name.c_str())) {
+        if (name && *name && r_name_check(name)) {
           (void)dispatch_write(be, addr, std::string("afn ") + name);
         }
       }

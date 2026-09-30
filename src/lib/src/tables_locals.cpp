@@ -64,6 +64,7 @@
 #include <r2xsql/backend.hpp>
 #include <xsql/vtable.hpp>
 
+#include <r_util.h>
 #include "tables.hpp"
 #include "direct.hpp"
 #include "json_utils.hpp"
@@ -191,7 +192,7 @@ void register_locals_table(Session& s) {
       [](const LocalRow& r) { return r.name; },
       [be = s.backend_ptr()](LocalRow& r, const char* v) -> bool {
         if (!v || !*v) return false;
-        if (!r_name_check(v.c_str())) {
+        if (!r_name_check(v)) {
           xsql::set_vtab_error(
               "locals: name must be [A-Za-z0-9._$] (no spaces or r2 metacharacters)");
           return false;

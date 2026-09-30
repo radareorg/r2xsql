@@ -77,6 +77,7 @@
 #include <r2xsql/backend.hpp>
 #include <xsql/vtable.hpp>
 
+#include <r_util.h>
 #include "tables.hpp"
 #include "direct.hpp"
 #include "json_utils.hpp"
@@ -163,7 +164,7 @@ void register_flags_table(Session& s) {
       [](const FlagRow& r) { return r.name; },
       [be = s.backend_ptr()](FlagRow& r, const char* v) -> bool {
         if (!v || !*v) return false;
-        if (!r_name_check(v.c_str())) {
+        if (!r_name_check(v)) {
           xsql::set_vtab_error(
               "flags: name must be [A-Za-z0-9._$] (no spaces or r2 metacharacters)");
           return false;
@@ -260,7 +261,7 @@ void register_flags_table(Session& s) {
         xsql::set_vtab_error("flags: INSERT requires a non-empty name");
         return false;
       }
-      if (!r_name_check(name.c_str())) {
+      if (!r_name_check(name)) {
         xsql::set_vtab_error(
             "flags: name must be [A-Za-z0-9._$] (no spaces or r2 metacharacters)");
         return false;

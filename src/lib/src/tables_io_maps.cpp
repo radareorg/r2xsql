@@ -15,6 +15,7 @@
 #include <r2xsql/backend.hpp>
 #include <xsql/vtable.hpp>
 
+#include <r_util.h>
 #include "tables.hpp"
 #include "json_utils.hpp"
 #include "table_utils.hpp"

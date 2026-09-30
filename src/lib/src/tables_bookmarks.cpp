@@ -39,6 +39,7 @@
 #include <r2xsql/backend.hpp>
 #include <xsql/vtable.hpp>
 
+#include <r_util.h>
 #include "tables.hpp"
 #include "json_utils.hpp"
 #include "table_utils.hpp"
@@ -126,7 +127,7 @@ void register_bookmarks_table(Session& s) {
       [](const BookmarkRow& r) { return r.name; },
       [be = s.backend_ptr()](BookmarkRow& r, const char* v) -> bool {
         if (!v || !*v) return false;
-        if (!r_name_check(v.c_str())) {
+        if (!r_name_check(v)) {
           xsql::set_vtab_error(
               "bookmarks: name must be [A-Za-z0-9._$] (no spaces or r2 metacharacters)");
           return false;
@@ -180,7 +181,7 @@ void register_bookmarks_table(Session& s) {
         xsql::set_vtab_error("bookmarks: INSERT requires a non-empty name");
         return false;
       }
-      if (!r_name_check(name.c_str())) {
+      if (!r_name_check(name)) {
         xsql::set_vtab_error(
             "bookmarks: name must be [A-Za-z0-9._$] (no spaces or r2 metacharacters)");
         return false;
