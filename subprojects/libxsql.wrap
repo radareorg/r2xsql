@@ -7,7 +7,7 @@
 # preference to the wrap. Otherwise this fetches the same source CMake does.
 [wrap-git]
 url = https://github.com/0xeb/libxsql.git
-revision = main
+revision = v1.0.21
 depth = 1
 patch_directory = libxsql
 

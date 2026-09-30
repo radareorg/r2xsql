@@ -35,6 +35,7 @@ BUILD=build-make
 # --- libxsql: sibling checkout by default, else fetched into build-make/ ------
 LIBXSQL_DIR?=../libxsql
 LIBXSQL_URL?=https://github.com/0xeb/libxsql.git
+LIBXSQL_REF?=v1.0.21
 ifeq ($(wildcard $(LIBXSQL_DIR)/CMakeLists.txt),)
   LIBXSQL_DIR:=$(BUILD)/libxsql
 endif
@@ -52,8 +53,8 @@ R2XSQL_INC=-I$(CWD)/src/lib/include -I$(CWD)/src/lib/src -I$(CWD)/src
 # --- defines ------------------------------------------------------------------
 # R2XSQL_HAVE_LIBR=1  -> compile the in-process libr backend (real, not stub).
 # XSQL_VERSION_STRING -> libxsql's --version string. Derived from libxsql's own
-# CMakeLists at build time so it always follows whatever libxsql main is at —
-# no pinned value here (r2xsql tracks libxsql main). Override with
+# CMakeLists at build time, so it follows the libxsql checkout in use (the
+# pinned LIBXSQL_REF when fetched). Override with
 # `make XSQL_VERSION=x` only if you must.
 # (pattern has no '(' on purpose: an unbalanced paren inside $(shell ...) makes
 # GNU make read it as an unterminated call.)
@@ -91,7 +92,7 @@ all: $(PLUGIN)
 # libxsql fetch (only if the sibling is absent and we redirected into build-make)
 $(LIBXSQL_DIR)/CMakeLists.txt:
 	@echo "libxsql not found at ../libxsql -- cloning $(LIBXSQL_URL)"
-	git clone --depth 1 $(LIBXSQL_URL) $(LIBXSQL_DIR)
+	git clone --depth 1 --branch $(LIBXSQL_REF) $(LIBXSQL_URL) $(LIBXSQL_DIR)
 
 $(BUILD)/libxsql.mk: $(LIBXSQL_DIR)/CMakeLists.txt
 	@mkdir -p $(dir $@)

@@ -8,7 +8,7 @@ project('libxsql', ['c', 'cpp'],
   default_options: ['cpp_std=c++17'])
 
 # Derive libxsql's version from its own CMakeLists so the --version banner
-# always follows whatever libxsql main is at — no pinned value here.
+# follows the libxsql checkout in use (the wrap's pinned revision when fetched).
 fs = import('fs')
 libxsql_ver = 'unknown'
 foreach line : fs.read('CMakeLists.txt').split('\n')
