@@ -4,10 +4,9 @@
 # This file is licensed under the Human-Origin Source License v1.0.
 # See LICENSE.
 # libr2xsql — static core library exposing radare2 state as SQLite virtual
-# tables. Backend-neutral: it carries the mock + r2pipe backends only and links
-# NO radare2, so consumers can link it without importing any r_*.dll. The libr
-# backend lives in the r2xsql_libr OBJECT library below, used by
-# in-process consumers and the in-r2 plugin.
+# tables. It carries the mock + r2pipe backends and uses r_util (name checks
+# go through r_name_check); the libr backend lives in the r2xsql_libr OBJECT
+# library below, used by in-process consumers and the in-r2 plugin.
 
 add_library(r2xsql STATIC
   src/version.cpp
@@ -69,7 +68,8 @@ target_include_directories(r2xsql
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-target_link_libraries(r2xsql PUBLIC xsql::xsql)
+# r_util for r_name_check, which the table sources call through <r_util.h>.
+target_link_libraries(r2xsql PUBLIC xsql::xsql Radare2::r_util)
 target_compile_features(r2xsql PUBLIC cxx_std_20)
 
 if(WIN32)
@@ -86,7 +86,7 @@ set_target_properties(r2xsql PROPERTIES POSITION_INDEPENDENT_CODE ON)
 # direct_libr.cpp is the C-API side of the src/direct.hpp seam: the row
 # producers a ported table uses instead of running a command and parsing its
 # JSON. It belongs here rather than in a tables_*.cpp because those are
-# compiled into the radare2-free core library above.
+# compiled into the core library above, which only uses r_util.
 add_library(r2xsql_libr OBJECT
   src/backend_libr.cpp
   src/direct_libr.cpp

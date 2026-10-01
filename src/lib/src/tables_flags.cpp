@@ -166,7 +166,7 @@ void register_flags_table(Session& s) {
         if (!v || !*v) return false;
         if (!r_name_check(v)) {
           xsql::set_vtab_error(
-              "flags: name must be [A-Za-z0-9._$] (no spaces or r2 metacharacters)");
+              "flags: name must start with a letter, '_' or ':' and use only [A-Za-z0-9._:]");
           return false;
         }
         if (r.name == v) return true;
@@ -263,7 +263,7 @@ void register_flags_table(Session& s) {
       }
       if (!r_name_check(name)) {
         xsql::set_vtab_error(
-            "flags: name must be [A-Za-z0-9._$] (no spaces or r2 metacharacters)");
+            "flags: name must start with a letter, '_' or ':' and use only [A-Za-z0-9._:]");
         return false;
       }
       std::string out = dispatch_write(be, addr, std::string("f ") + name);

@@ -35,6 +35,10 @@ int64_t     i64_addr(const nlohmann::json& obj, int64_t dflt = 0);
 
 
 
+// Quote a string for use as a shell-ish r2 command argument. r2 itself is
+// not a shell, but spaces, quotes and backslashes need escaping in CC args.
+std::string r2_quote(std::string_view s);
+
 // True iff `type` is a safe C type string to splice into an r2 `afvt` command
 // unquoted: a non-empty string of type-syntax characters only —
 // [A-Za-z0-9_.* space []] . r2's `afvt <name> <type>` takes the type verbatim
