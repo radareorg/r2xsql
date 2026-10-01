@@ -60,6 +60,23 @@ bool boolean(const nlohmann::json& obj, std::string_view key, bool dflt) {
 
 
 
+std::string r2_quote(std::string_view s) {
+  std::string out;
+  out.reserve(s.size() + 2);
+  out.push_back('"');
+  for (char c : s) {
+    switch (c) {
+      case '\\': out += "\\\\"; break;
+      case '"':  out += "\\\""; break;
+      case '\n': out += "\\n";  break;
+      case '\r': out += "\\r";  break;
+      default:   out.push_back(c);
+    }
+  }
+  out.push_back('"');
+  return out;
+}
+
 bool valid_type_text(std::string_view type) {
   if (type.empty()) return false;
   for (unsigned char c : type) {

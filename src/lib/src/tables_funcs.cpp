@@ -221,7 +221,7 @@ void register_funcs_table(Session& s) {
         if (!v || !*v) return false;
         if (!r_name_check(v)) {
           xsql::set_vtab_error(
-              "funcs: name must be [A-Za-z0-9._$] (no spaces or r2 metacharacters)");
+              "funcs: name must start with a letter, '_' or ':' and use only [A-Za-z0-9._:]");
           return false;
         }
         std::string out = dispatch_write(be, r.addr, std::string("afn ") + v);
