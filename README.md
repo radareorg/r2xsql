@@ -52,7 +52,7 @@ create empty struct/union/enum types through the corresponding tables.
 # any one of these
 r2pm -ci radare2                       # radare2's own package manager
 git clone https://github.com/radareorg/radare2 && radare2/sys/install.sh
-sudo apt install radare2               # distro package (may lag; see below)
+sudo apt install radare2               # distro package (may lag behind releases)
 brew install radare2                   # macOS
 ```
 
@@ -64,11 +64,13 @@ the in-process plugin depends on radare2's ABI.
 Load the built module and analyze a target:
 
 ```sh
-r2 -i /absolute/path/core_r2xsql.so -A ./target
+r2 -A -c 'L /absolute/path/core_r2xsql.so' ./target
 ```
 
-Use the actual `.so`, `.dylib`, or `.dll` path; omit `-i` once the plugin is
-installed in radare2's plugin directory. At the radare2 prompt:
+Use the actual `.so`, `.dylib`, or `.dll` path; omit the `L` command once the
+plugin is installed in radare2's plugin directory. `-i <plugin>` also works on
+Linux and macOS, but radare2 6.2.2 on Windows reads a `.dll` given to `-i` as a
+script and fails; `L` works everywhere. At the radare2 prompt:
 
 ```text
 sql SELECT name, size FROM funcs ORDER BY size DESC LIMIT 10
@@ -79,7 +81,7 @@ q
 For a one-shot query:
 
 ```sh
-r2 -q -A -i /absolute/path/core_r2xsql.so \
+r2 -q -A -c 'L /absolute/path/core_r2xsql.so' \
   -c '"sql SELECT name, size FROM funcs WHERE size > 100 LIMIT 5"' ./target
 ```
 
@@ -123,9 +125,9 @@ default; a missing radare2 installation is a configure error. The plugin is in
 `build/bin/` (`build/bin/Release/` for the MSVC Release configuration).
 
 `R2XSQL_BUILD_PLUGIN=OFF` disables the plugin target and
-`R2XSQL_BUILD_EXAMPLES=OFF` disables examples. The backend-neutral static
-library and r2pipe backend remain available to C++ consumers. The project
-also supports being added as a CMake subdirectory.
+`R2XSQL_BUILD_EXAMPLES=OFF` disables examples. The static core library (which
+links radare2's `r_util`) and the r2pipe backend remain available to C++
+consumers. The project also supports being added as a CMake subdirectory.
 
 ### Building the in-r2 plugin the radare2 way (Makefile / meson)
 
@@ -155,7 +157,7 @@ meson setup build-meson -Dr2_user_plugins=true   # ... or the per-user dir
 Both build the same plugin: the `sql` command. Both
 consume [`libxsql`](https://github.com/0xeb/libxsql): the Makefile uses a
 sibling `../libxsql` checkout (else clones it), and meson pulls it as a
-subproject. A current libxsql is required (same as CMake's `FetchContent`).
+subproject. All three builds pin the same libxsql release tag (`v1.0.21`).
 
 ### JSON results
 
@@ -175,12 +177,13 @@ The same command works through r2pipe and radare2's HTTP `/cmd/` endpoint.
 Load the plugin in a persistent radare2 session and start r2's web server:
 
 ```sh
-r2 -N -q -i /absolute/path/core_r2xsql.so \
+r2 -N -q -c 'L /absolute/path/core_r2xsql.so' \
   -e http.bind=127.0.0.1 -e http.port=9090 -c aa -c '=h' ./target
 ```
 
 Use the plugin's actual `.so`, `.dylib`, or `.dll` path. If it is installed,
-omit `-i`. Send a quoted SQL command through r2's `POST /cmd/` endpoint:
+omit the `L` command. Send a quoted SQL command through r2's `POST /cmd/`
+endpoint:
 
 ```sh
 curl --data-binary '"sql SELECT name, size FROM funcs WHERE size > 100 LIMIT 5"' \
