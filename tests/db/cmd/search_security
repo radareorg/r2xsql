@@ -1,0 +1,61 @@
+NAME=assembly search does not execute command substitutions
+FILE=malloc://16
+ARGS=-e log.level=0 -i build/load.r2 -a x86 -b 64
+CMDS=<<CMDS
+wx 90c3
+e search.in=block
+'sql,:quiet SELECT count(*) FROM search_asm WHERE asm='nop $(f sql_injected)'
+'sql,:quiet SELECT count(*) FROM flags WHERE name='sql_injected'
+e search.in
+'sql,:quiet SELECT count(*) FROM search_asm WHERE asm='nop'
+e search.in
+CMDS
+EXPECT=<<EXPECTED
+0
+0
+block
+1
+block
+EXPECTED
+EXPECT_ERR=
+RUN
+
+NAME=assembly search preserves hash operands and search scope
+FILE=malloc://16
+ARGS=-e log.level=0 -i build/load.r2 -a arm -b 64
+CMDS=<<CMDS
+wx 00040091c0035fd6
+e search.in=block
+'sql,:quiet SELECT count(*) FROM search_asm WHERE asm='add x0, x0, #1'
+e search.in
+CMDS
+EXPECT=<<EXPECTED
+1
+block
+EXPECTED
+EXPECT_ERR=
+RUN
+
+NAME=gadget pattern cannot comment out search scope restoration
+FILE=malloc://1024
+ARGS=-e log.level=0 -i build/load.r2 -a x86 -b 64
+CMDS=<<CMDS
+wx 9058c3 @ 0x40
+e search.in=block
+'sql,:quiet SELECT count(*) FROM rop_gadgets WHERE pattern='#'
+e search.in
+'sql,:quiet SELECT count(*) FROM rop_gadget_instructions WHERE pattern='#'
+e search.in
+'sql,:quiet SELECT count(*)>0 FROM rop_gadgets WHERE terminator='ret'
+e search.in
+CMDS
+EXPECT=<<EXPECTED
+0
+block
+0
+block
+1
+block
+EXPECTED
+EXPECT_ERR=
+RUN

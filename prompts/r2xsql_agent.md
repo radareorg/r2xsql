@@ -1177,10 +1177,8 @@ SELECT hex FROM assemble WHERE asm = 'jmp 0x401010' AND addr = 0x401000;
 
 `asm` is charset-validated (letters, digits, space, and
 `,.+-*/[]():%#_$`) BEFORE it is ever spliced into a command — real assembly
-text never needs `;`/`@`/`|`/backtick/quotes, so this alone makes the
-argument injection-safe; `Backend::cmd_noeval` is layered on top for
-defense-in-depth on the libr backend (same "wired in anyway, not because a
-real gap was found here" posture `patches`' `wx` write already has).
+text is passed through literal command dispatch, so `$()` and other r2
+metacharacters cannot trigger command expansion.
 
 #### `search_asm` (read-only)
 Assembles `asm` and searches for the resulting bytes via the plain
@@ -1205,18 +1203,10 @@ SELECT printf('0x%x', addr) AS at, matched_hex FROM search_asm
 WHERE asm = 'push rbp' AND max_results = 20;
 ```
 
-Sets `search.in=io.maps.x` for the duration of its own search and restores
-`io.maps` afterward, in ONE `Backend::cmd()` call — the same atomic
-set/search/restore idiom `rop_gadgets` uses, and for the same reason
-(`search.in` is session-global config that leaks past the command that set
-it, shared across concurrent interactive callers). Does **not** use
-`Backend::cmd_noeval` — the atomic three-command chain is structurally
-incompatible with cmd_noeval's single no-eval-command dispatch, so `asm`'s
-charset allowlist (same validator as `assemble`) is what makes this safe on
-its own, the identical trade-off `rop_gadgets` already made for its own
-`pattern` input. Command-path only; pair-tested identical on both backends
-(11/11 hits for `asm = 'push rbp'` against the same fixture on pipe and
-libr).
+Searches executable maps (`search.in=io.maps.x`) and restores the caller's
+previous setting through native config APIs. Both `search_asm` and the ROP
+tables dispatch directly to radare2's command handler: SQL text cannot expand
+`$()` substitutions, and `#` cannot comment out a restoration command.
 
 #### `demangle` (read-only)
 One row per query: demangles an ARBITRARY mangled name via `r_bin_demangle`.
