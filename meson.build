@@ -27,9 +27,9 @@ project('r2xsql', ['c', 'cpp'],
 # --- radare2 plugin dir, straight from r2 itself ------------------------------
 r2 = find_program('radare2', 'r2', required: true)
 if get_option('r2_user_plugins')
-  res = run_command(r2, '-HR2_USER_PLUGINS', capture: true, check: false)
+  res = run_command(r2, '-NN', '-HR2_USER_PLUGINS', capture: true, check: false)
 else
-  res = run_command(r2, '-HR2_LIBR_PLUGINS', capture: true, check: false)
+  res = run_command(r2, '-NN', '-HR2_LIBR_PLUGINS', capture: true, check: false)
 endif
 if res.returncode() == 0 and res.stdout().strip() != ''
   r2_plugdir = res.stdout().strip()
@@ -106,6 +106,7 @@ r2xsql_inc = include_directories('src/lib/include', 'src/lib/src', 'src')
 shared_module('core_r2xsql',
   [r2xsql_srcs, plugin_src],
   name_prefix: '',
+  name_suffix: host_machine.system() == 'darwin' ? 'dylib' : [],
   cpp_args: ['-DR2XSQL_HAVE_LIBR=1'],
   include_directories: r2xsql_inc,
   dependencies: [xsql_dep, r_core, threads],

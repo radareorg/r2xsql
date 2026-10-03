@@ -1,87 +1,40 @@
 #!/usr/bin/env bash
-# Stage r2xsql release trees from a completed build:
-#   dist/plugin/  — extract ON TOP OF a radare2 install prefix (libr drop-in):
-#                      <r2-plugin-dir>/core_r2xsql.*  (r2's own plugin search dir)
-#
-# The plugin's relative path is derived from the installed prefix layout so the
-# plugin drops the plugin exactly where this r2 looks for it — Linux uses
-# <libdir>/radare2/<ver>/, Windows uses lib/plugins.
+# Stage the same plugins/ layout on every platform for r2pm -bi.
 set -euo pipefail
 
-PFX="${GITHUB_WORKSPACE}/r2prefix"
-# On Windows runners GITHUB_WORKSPACE is a backslash path (D:\a\r2xsql\r2xsql),
-# which find/grep/test choke on under Git-Bash. Normalize to a Unix-style path
-# (cygpath exists only in Git-Bash; a no-op elsewhere).
-if command -v cygpath >/dev/null 2>&1; then
-  PFX="$(cygpath -u "${GITHUB_WORKSPACE}")/r2prefix"
-fi
-
-# radare2's system plugin dir, RELATIVE to the prefix, derived from the installed
-# layout (we do NOT run radare2 — `radare2 -H` drops into r2pipe mode under CI
-# pipes). The default meson build links the core plugins statically, so the
-# plugin dir often does NOT exist on disk after install (the plugin creates it):
-#   * Windows (meson): <prefix>/lib/plugins                 — and there is no
-#     */radare2/<version> dir at all, so the scan below finds nothing.
-#   * Unix    (meson): <prefix>/<libdir>/radare2/<version>  (libdir = lib, lib64,
-#     or lib/<triplet>), reconstructed from the data-dir <version> and where
-#     libr_core landed.
-# `|| true` keeps an empty find from tripping pipefail+errexit (which would kill
-# the script before it prints anything — exactly the Windows symptom).
-REL_PLUGIN=""
-if [ -d "${PFX}/lib/plugins" ]; then
-  REL_PLUGIN="lib/plugins"
-else
-  VER_DIR="$(find "${PFX}" -type d -path '*/radare2/*' 2>/dev/null \
-               | grep -E '/radare2/[0-9][^/]*$' | head -1 || true)"
-  if [ -n "${VER_DIR}" ]; then
-    R2_VER="$(basename "${VER_DIR}")"
-    # Match the import/shared lib (libr_core.* on Unix, r_core.lib on Windows),
-    # never the header r_core.h.
-    CORE_LIB="$(find "${PFX}" -maxdepth 4 \
-                  \( -name 'libr_core.*' -o -name 'r_core.lib' -o -name 'r_core.dll.a' \) \
-                  2>/dev/null | head -1 || true)"
-    if [ -n "${CORE_LIB}" ]; then
-      REL_LIBDIR="$(dirname "${CORE_LIB}")"
-      REL_LIBDIR="${REL_LIBDIR#"${PFX}/"}"
-      REL_PLUGIN="${REL_LIBDIR}/radare2/${R2_VER}"
-    fi
-  fi
-fi
-# Fallback (Windows static-plugin builds expose no versioned dir): radare2 looks
-# for system plugins in <prefix>/lib/plugins.
-if [ -z "${REL_PLUGIN}" ]; then
-  REL_PLUGIN="lib/plugins"
-fi
-echo "radare2 core plugin dir: ${REL_PLUGIN}"
-
-# Helper: copy the first path that exists.
-copy_first() {
-  local dest="$1"; shift
-  local src
-  for src in "$@"; do
-    if [ -f "$src" ]; then cp "$src" "$dest"; return 0; fi
-  done
-  echo "ERROR: none of these exist: $*" >&2
-  return 1
-}
+# The pinned radare2 predates r2pm -H R2PM_TRIPLET.
+case "${RUNNER_OS}-${RUNNER_ARCH}" in
+  Linux-X64) R2PM_TRIPLET=linux-x86-64; ext=so ;;
+  Windows-X64) R2PM_TRIPLET=windows-x86-64; ext=dll ;;
+  macOS-X64) R2PM_TRIPLET=darwin-x86-64; ext=dylib ;;
+  macOS-ARM64) R2PM_TRIPLET=darwin-arm-64; ext=dylib ;;
+  *) echo "Unsupported runner: ${RUNNER_OS}-${RUNNER_ARCH}" >&2; exit 1 ;;
+esac
 
 rm -rf dist
-mkdir -p "dist/plugin/${REL_PLUGIN}"
+mkdir -p dist/plugin/plugins
+cp "build/bin/core_r2xsql.${ext}" dist/plugin/plugins/
+cp LICENSE dist/plugin/
 
-copy_first "dist/plugin/${REL_PLUGIN}/" \
-  build/bin/core_r2xsql.so build/bin/core_r2xsql.dylib build/bin/core_r2xsql.dll \
-  build/bin/Release/core_r2xsql.dll build/src/plugin/core_r2xsql.so \
-  build/src/plugin/Release/core_r2xsql.dll
+# Check automatic discovery of the packaged plugin, including its suffix.
+result=$(R2_LIBR_PLUGINS="$PWD/dist/plugin/plugins" \
+  LD_LIBRARY_PATH="$PWD/r2prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+  DYLD_LIBRARY_PATH="$PWD/r2prefix/lib${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
+  ./r2prefix/bin/radare2 -Nq -c 'sqlj SELECT 1 AS ok' -)
+[[ "$result" == *'"rows":[["1"]]'* ]] || { echo "$result" >&2; exit 1; }
 
 cat > dist/plugin/README.txt <<EOF
 r2xsql — radare2 core plugin
 
-Extract this archive ON TOP OF your matching radare2 install prefix (the
-directory that contains bin/radare2[.exe]). It adds:
+Built against radare2 ${R2_REF} for ${R2PM_TRIPLET}.
+Install with a matching radare2 version and a recent r2pm:
 
-  ${REL_PLUGIN}/core_r2xsql.*    in-r2 plugin
+  r2pm -U
+  r2pm -bi r2xsql
 
-Confirm the plugin loaded with Lcj inside radare2.
+Or copy plugins/core_r2xsql.${ext} into the directory printed by
+radare2 -NN -H R2_USER_PLUGINS (per-user) or R2_LIBR_PLUGINS (system-wide).
+Remove that file to uninstall. Rebuild for a different radare2 ABI.
 
 At the radare2 prompt:
   aaa
@@ -100,10 +53,7 @@ The plugin also works through radare2's own HTTP server:
 
 Read the command output for errors even when HTTP returns status 200.
 Save analysis with Ps NAME before exiting; binary byte writes require -w.
-
-Built against radare2 ${R2_REF}. Rebuild for a different radare2 ABI.
-
 EOF
 
-echo "=== staged tree ==="
+printf 'name=r2xsql-%s-%s\n' "$R2_REF" "$R2PM_TRIPLET" >> "$GITHUB_OUTPUT"
 find dist -type f | sort
