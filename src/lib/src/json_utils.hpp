@@ -60,23 +60,9 @@ bool valid_c_signature(std::string_view text);
 // injecting r2 commands when spliced into `om $d <vaddr> <size> <paddr> <perm>`.
 bool valid_perm(std::string_view perm);
 
-// True iff `text` is safe assembly-mnemonic source text to splice unquoted
-// into radare2's assembler-family commands (`pa`/`/a`, see tables_assemble.cpp
-// and the `patches` table's `asm_text` INSERT column): alnum, space, and the
-// punctuation real disassembly/assembly text actually uses
-// (`, . + - * / [ ] ( ) : % # _ $`). Rejects every r2 command
-// separator/metacharacter (`; @ | & < > " ' backtick newline`, ...), so a
-// caller-supplied instruction can never inject a second command -- the same
-// allowlist-over-quoting CHOICE tables_rop.cpp's local `valid_gadget_pattern`
-// already made for the nearly identical "opstr text" shape (a separate,
-// slightly narrower charset there since it only ever matches EXISTING
-// disassembly text, never assembles new instructions -- this one is shared
-// across `assemble`/`search_asm`/`patches.asm_text`, which all splice
-// caller-supplied ASSEMBLY SOURCE, so it lives here in json_utils rather
-// than as a fourth local copy). NOT used for `demangle`'s `mangled` input:
-// MSVC/Rust manglings routinely need `?`/`@` characters this charset
-// excludes, so that table uses Backend::cmd_noeval instead (see
-// tables_demangle.cpp).
+// Accepted assembly syntax for assemble, search_asm and patches.asm_text.
+// This allows $() and # for assembly syntax; it is not a command-escaping
+// function. Callers must use literal dispatch or a native API.
 bool valid_asm_source_text(std::string_view text);
 
 // Hex address formatter ("0x401000").

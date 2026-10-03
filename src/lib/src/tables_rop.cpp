@@ -26,19 +26,8 @@
 // required: an unfiltered `/gj` scan over the whole configured search scope
 // is a real, bounded answer, not an error.
 //
-// `search.in` is r2 session config that leaks past the command that sets it
-// (verified directly: set it, run an unrelated command, read it back — the
-// new value is still there). There is no automatic restore, exactly the
-// property that forced the flags table's atomic flagspace-select pattern.
-// Every search here runs as ONE `Backend::cmd()`/`cmd_json()` call that sets
-// the scope, searches, and puts the scope back — never as separate calls
-// with anything else in between, since the in-process plugin shares one
-// core across its interactive/remote callers and a leaked scope would
-// corrupt a concurrent caller's search. The scope is always restored to
-// radare2's own documented default (`io.maps`) rather than a value read back
-// in a separate round trip first — the same "restore to the neutral
-// default, not a racily-read prior value" choice the flagspace fix already
-// made for the same class of hazard.
+// Searches use native config save/restore and direct command dispatch, so
+// pattern text cannot expand commands or interfere with restoring search.in.
 //
 // The default search scope is `io.maps.x` (executable maps only), not
 // radare2's own CLI default of `io.maps` (all IO maps, code and data).
@@ -113,6 +102,7 @@
 #include <xsql/vtable.hpp>
 
 #include "tables.hpp"
+#include "direct.hpp"
 #include "json_utils.hpp"
 
 namespace r2xsql {
@@ -230,10 +220,9 @@ std::vector<GadgetRec> run_gadget_search(Backend* be, const SearchParams& p) {
     search_cmd += p.pattern;
   }
 
-  // Atomic: set scope, search, restore scope -- one command, see file header.
-  const std::string atomic =
-      "e search.in=io.maps.x; " + search_cmd + "; e search.in=io.maps";
-  auto hits = be->cmd_json(atomic);
+  auto* api = be->direct();
+  const std::string text = api ? api->search(search_cmd) : be->cmd("'" + search_cmd);
+  auto hits = nlohmann::json::parse(text, nullptr, false);
   if (!hits.is_array()) return out;
 
   for (auto& g : hits) {

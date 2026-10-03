@@ -482,6 +482,8 @@ class Api {
   // receives the same diagnostic as iDj in that case.
   virtual std::string demangle(const std::string& mangled,
                                const std::string& lang, std::string& error) = 0;
+  // Search executable maps without command expansion; restore search.in afterward.
+  virtual std::string search(const std::string& command) = 0;
   virtual bool entry_address(int64_t& out) = 0;
   virtual void relocs_scan(std::vector<RelocRow>& out) = 0;
   virtual void type_members_scan(std::vector<MemberRow>& out) = 0;

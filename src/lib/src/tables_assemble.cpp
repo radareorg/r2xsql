@@ -4,61 +4,9 @@
 // This file is licensed under the Human-Origin Source License v1.0.
 // See LICENSE.
 //
-// assemble / search_asm -- two genuine gaps closed together since both are
-// thin SQL wrappers over radare2's assembler, verified against the CURRENT
-// radare2 source rather than guessed:
-//
-//   - `assemble`: one row per query, encodes an assembly-mnemonic string to
-//     bytes via `pa <asm>` (`cmd_print.inc.c`'s `cmd_pa`) -- "print hexpairs
-//     of the given assembly expression." No JSON mode exists for `pa`
-//     (`paj` is not a real subcommand -- verified live: it gets parsed as
-//     `pa` with asm text "j ...", not a JSON flag); a bare hexpairs line is
-//     the only success shape, and radare2 prints NOTHING to stdout on
-//     failure (its "Cannot assemble '<asm>' at line 1" diagnostic is
-//     stderr-only, invisible to Backend::cmd()/cmd_noeval).
-//   - `search_asm`: one row per match, assembles `asm` and searches for the
-//     resulting bytes via the plain (non-JSON) `/a <asm>` command
-//     (`cmd_search.inc.c`, the `case ' '` branch under `case 'a':`).
-//     IMPORTANT, verified live: `/aj <asm>` is NOT this command's JSON
-//     form -- appending `j` directly after `/a` misroutes to the UNRELATED
-//     `/at` (search-by-instruction-TYPE) family instead (confirmed: `/aj
-//     push rbp` returned `{"cmd":"/atj","arg":"push rbp","result":[]}`, and
-//     `/aj mov rdi, rsi` matched by TYPE "mov" rather than assembling the
-//     literal text at all) -- a real radare2 command-dispatch collision,
-//     not a bug in this table. So this table parses the plain-text output
-//     format instead: one `<hex addr> <hitN_M> <hex bytes>` line per match,
-//     confirmed stable across multiple hits and architectures.
-//
-// Both commands take a free-text assembly argument that this table
-// charset-validates via `json_utils::valid_asm_source_text` (alnum, space,
-// and disassembly-safe punctuation) BEFORE it is ever spliced into a
-// command string -- the same allowlist-over-quoting choice `byte_search`
-// (hex pattern), `patches` (hex bytes), and `rop_gadgets` (opstr pattern)
-// already made for their own free-text inputs, verified live to close a
-// real hole: `/a push rbp; ?e INJECTED` spliced through a plain
-// `Backend::cmd()` call DOES execute the injected `?e` (radare2's own `;`
-// chaining) -- exactly the class of bug the charset allowlist prevents by
-// construction. `assemble` additionally layers `table_utils::assemble_hex`
-// (which tries `Backend::cmd_noeval` first) for defense-in-depth, mirroring
-// `patches`' own `wx` write (also charset-safe on its own, cmd_noeval wired
-// in anyway) -- `search_asm` does NOT, because its search needs an ATOMIC
-// three-command chain (`e search.in=...; /a ...; e search.in=...`, see
-// below), which is structurally incompatible with cmd_noeval's single
-// no-eval-command dispatch; the charset allowlist alone is what makes that
-// chain safe, the identical trade-off `rop_gadgets` already made for the
-// exact same reason (see its own file header).
-//
-// `search_asm` sets `search.in=io.maps.x` (executable maps only) for the
-// duration of its own search and restores `io.maps` afterward, in ONE
-// `Backend::cmd()` call (never as separate calls with anything else able to
-// interleave) -- the identical atomic set/search/restore idiom
-// `rop_gadgets` already established for the same reason: `search.in` is
-// session-global config that leaks past the command that set it, and this
-// project's r2 core is shared across concurrent interactive/remote
-// callers, so leaving it mutated (or trusting whatever a PRIOR caller left
-// it as) would make this table's results depend on unrelated session
-// history.
-//
+// assemble uses pa; search_asm uses /a and parses its text output.
+// /aj selects the instruction-type search family, not a JSON form of /a.
+// Search arguments bypass command expansion and search.in is restored natively.
 
 #include <cstdint>
 #include <cstdlib>
@@ -173,12 +121,9 @@ std::vector<SearchAsmRow> run_search_asm(Backend* be, const std::string& asm_tex
   std::vector<SearchAsmRow> out;
   if (asm_text.empty() || !json_utils::valid_asm_source_text(asm_text)) return out;
 
-  // Atomic: set scope, search, restore scope -- one Backend::cmd() call, see
-  // file header. asm_text is already charset-validated above, so splicing it
-  // unquoted here can never break out of this command chain.
-  const std::string atomic =
-      "e search.in=io.maps.x; /a " + asm_text + "; e search.in=io.maps";
-  const std::string text = be->cmd(atomic);
+  auto* api = be->direct();
+  const std::string command = "/a " + asm_text;
+  const std::string text = api ? api->search(command) : be->cmd("'" + command);
 
   size_t pos = 0;
   while (pos <= text.size()) {

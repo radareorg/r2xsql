@@ -128,6 +128,21 @@ class LibrApi : public Api {
     return demangled;
   }
 
+  std::string search(const std::string& command) override {
+    std::lock_guard lock(mu_);
+    if (!core_) return {};
+    RConfigHold* hold = r_config_hold_new(core_->config);
+    if (!hold) return {};
+    r_config_hold(hold, "search.in", nullptr);
+    r_config_set(core_->config, "search.in", "io.maps.x");
+    char* result = r_core_call_str_at(core_, core_->addr, command.c_str());
+    r_config_hold_restore(hold);
+    r_config_hold_free(hold);
+    std::string out = result ? result : "";
+    free(result);
+    return out;
+  }
+
   bool function_is_start(int64_t addr) override {
     std::lock_guard lock(mu_);
     return core_ && core_->anal &&
