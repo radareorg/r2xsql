@@ -16,10 +16,7 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# radare2 is not a submodule of r2xsql; CI builds it from source to an install
-# prefix and points r2xsql at it with -DRadare2_ROOT. R2XSQL_BUILD_FULL=ON
-# builds the libr backend and in-r2 plugin. The plugin artifact installs the
-# plugin under r2's own plugin dir, on top of a matching radare2 install prefix.
+# Build against this radare2 release without changing its version for r2pm.
 env:
   R2_REF: "6.2.2"
 
@@ -67,13 +64,14 @@ jobs:
           make -C tests R2XSQL_PLUGIN="$GITHUB_WORKSPACE/build/bin/core_r2xsql.so"
 
       - name: Stage artifacts
+        id: stage
         shell: bash
         run: bash .github/scripts/stage_artifacts.sh
 
       - name: Upload plugin artifact
         uses: actions/upload-artifact@v4
         with:
-          name: r2xsql-linux-plugin
+          name: ${{ steps.stage.outputs.name }}
           path: dist/plugin/
           if-no-files-found: error
 
@@ -130,13 +128,14 @@ jobs:
           cmake --build build --config Release
 
       - name: Stage artifacts
+        id: stage
         shell: bash
         run: bash .github/scripts/stage_artifacts.sh
 
       - name: Upload plugin artifact
         uses: actions/upload-artifact@v4
         with:
-          name: r2xsql-windows-plugin
+          name: ${{ steps.stage.outputs.name }}
           path: dist/plugin/
           if-no-files-found: error
 
@@ -173,19 +172,19 @@ jobs:
           cmake --build build --config Release
 
       - name: Stage artifacts
+        id: stage
         shell: bash
         run: bash .github/scripts/stage_artifacts.sh
 
       - name: Upload plugin artifact
         uses: actions/upload-artifact@v4
         with:
-          name: r2xsql-macos-plugin
+          name: ${{ steps.stage.outputs.name }}
           path: dist/plugin/
           if-no-files-found: error
 
   # ============================================================================
-  # Release — zip each artifact tree (zip root = the deployable layout) and
-  # attach. Plugin zips extract on top of a radare2 install prefix.
+  # Release — zip each artifact with plugins/ at the archive root.
   # ============================================================================
   publish-release:
     name: Publish Release
@@ -213,7 +212,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            r2xsql-linux-plugin.zip
-            r2xsql-windows-plugin.zip
-            r2xsql-macos-plugin.zip
+            r2xsql-*.zip
           generate_release_notes: true

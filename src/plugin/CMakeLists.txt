@@ -19,6 +19,9 @@ set_target_properties(core_r2xsql PROPERTIES
   OUTPUT_NAME "core_r2xsql"
   PREFIX ""
 )
+if(APPLE)
+  set_target_properties(core_r2xsql PROPERTIES SUFFIX ".dylib")
+endif()
 
 target_include_directories(core_r2xsql PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/../lib/include

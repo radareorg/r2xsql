@@ -23,9 +23,9 @@
 # with `make R2=radare2` if only the long name is on PATH.
 R2?=r2
 R2R?=r2r
-R2_LIBEXT=$(shell $(R2) -H R2_LIBEXT)
-R2_USER_PLUGINS=$(shell $(R2) -H R2_USER_PLUGINS)
-R2_LIBR_PLUGINS=$(shell $(R2) -H R2_LIBR_PLUGINS)
+R2_LIBEXT=$(shell $(R2) -NN -H R2_LIBEXT)
+R2_USER_PLUGINS=$(shell $(R2) -NN -H R2_USER_PLUGINS)
+R2_LIBR_PLUGINS=$(shell $(R2) -NN -H R2_LIBR_PLUGINS)
 
 CXX?=g++
 CC?=gcc
@@ -84,8 +84,11 @@ OBJS=$(SQLITE_OBJ) $(XSQL_OBJS) $(R2XSQL_OBJS) $(PLUGIN_OBJ)
 
 all: $(PLUGIN)
 
+# Removing files must not fetch or rebuild dependencies via included makefiles.
+ifneq ($(filter-out clean mrproper uninstall user-uninstall,$(or $(MAKECMDGOALS),all)),)
 -include $(BUILD)/libxsql.mk
 -include $(OBJS:.o=.d)
+endif
 
 .DELETE_ON_ERROR:
 

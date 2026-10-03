@@ -139,11 +139,17 @@ CMake, matching how radare2 plugins are usually built (plugin paths from
 make                 # -> build-make/core_r2xsql.$(r2 -H R2_LIBEXT)
 make user-install    # install into the per-user plugin dir (no root)
 make install         # install system-wide (R2_LIBR_PLUGINS)
+make user-uninstall  # remove the per-user plugin without building
+make uninstall       # remove the system-wide plugin without building
 make test            # load it in r2 and run one SQL query
 # only `radare2` (not `r2`) on PATH?  ->  make R2=radare2
 ```
 
-or with meson (what radare2 itself uses):
+`make install` and `make uninstall` accept `PLUGDIR` and `DESTDIR` for a
+custom plugin directory or staged install. User targets use `R2_USER_PLUGINS`;
+override it on the make command line when needed.
+
+Or with meson (what radare2 itself uses):
 
 ```bash
 meson setup build-meson
@@ -156,6 +162,13 @@ Both build the same plugin: the `sql` command. Both
 consume [`libxsql`](https://github.com/0xeb/libxsql): the Makefile uses a
 sibling `../libxsql` checkout (else clones it), and meson pulls it as a
 subproject. A current libxsql is required (same as CMake's `FetchContent`).
+
+Release assets are named `r2xsql-<radare2-version>-<R2PM_TRIPLET>.zip`, for
+example `r2xsql-6.2.2-linux-x86-64.zip`. Each contains the plugin in `plugins/`.
+With a recent r2pm supporting binary installs, use `r2pm -U` followed by
+`r2pm -bi r2xsql`; uninstall with `r2pm -u r2xsql`. Only matching radare2
+versions and targets are installed. To install manually, copy the plugin to
+the directory printed by `radare2 -NN -H R2_USER_PLUGINS`.
 
 ### JSON results
 
