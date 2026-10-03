@@ -50,7 +50,7 @@ jobs:
           git -C r2src fetch --depth 1 origin "$R2_REF"
           git -C r2src checkout --detach FETCH_HEAD
           meson setup r2src/b r2src --prefix="$GITHUB_WORKSPACE/r2prefix" \
-            --buildtype=release -Dsdb_cgen=false
+            --buildtype=release --libdir=lib -Dsdb_cgen=false
           ninja -C r2src/b
           ninja -C r2src/b install
 
