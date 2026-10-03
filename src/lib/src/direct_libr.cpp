@@ -572,6 +572,41 @@ class LibrApi : public Api {
     free(members);
   }
 
+  bool type_create(const std::string& name, const std::string& kind) override {
+    std::lock_guard lock(mu_);
+    const std::string declaration = kind + " " + name + " {};";
+    char* error = nullptr;
+    char* parsed = r_anal_cparse(core_->anal, declaration.c_str(), &error);
+    free(error);
+    if (!parsed) return false;
+    r_anal_save_parsed_type(core_->anal, parsed);
+    free(parsed);
+    return sdb_exists(core_->anal->sdb_types, name.c_str());
+  }
+
+  bool type_delete(const std::string& name) override {
+    std::lock_guard lock(mu_);
+    r_anal_remove_parsed_type(core_->anal, name.c_str());
+    return !sdb_exists(core_->anal->sdb_types, name.c_str());
+  }
+
+  bool io_map_create(int64_t addr, uint64_t size, int64_t paddr,
+                     const std::string& perm, const std::string& name) override {
+    std::lock_guard lock(mu_);
+    const int fd = r_io_fd_get_current(core_->io);
+    RIOMap* map = r_io_map_add(core_->io, fd, r_str_rwx(perm.c_str()),
+                              static_cast<ut64>(paddr), static_cast<ut64>(addr), size);
+    if (!map) return false;
+    if (!name.empty()) r_io_map_set_name(map, name.c_str());
+    return true;
+  }
+
+  bool io_map_delete(int64_t id) override {
+    std::lock_guard lock(mu_);
+    r_io_map_del(core_->io, static_cast<ut32>(id));
+    return !r_io_map_get(core_->io, static_cast<ut32>(id));
+  }
+
   void types_scan(std::vector<TypeRow>& out) override {
     std::lock_guard lock(mu_);
     if (!core_ || !core_->anal) return;

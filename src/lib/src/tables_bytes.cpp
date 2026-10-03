@@ -272,11 +272,6 @@ class BytesWindowIterator : public xsql::RowIterator {
   int64_t rowid() const override { return rows_[i_].addr; }
 };
 
-std::string dispatch_write(Backend* be, int64_t addr, const std::string& command) {
-  std::string out;
-  if (be->cmd_noeval(addr, command, &out)) return out;
-  return be->cmd(command + " @ " + json_utils::hex_addr(addr));
-}
 
 // UPDATE bytes SET value = X WHERE addr = Y -- a direct, immediate, ONE-BYTE
 // overwrite via `wx`. This is deliberately separate from the `patches` table
@@ -317,21 +312,6 @@ std::string dispatch_write(Backend* be, int64_t addr, const std::string& command
 // restore-value bundling, which does not apply here since io.cache's
 // restore target is a value read at runtime, not a hardcoded constant.
 //
-// The byte value is validated to a strict 0-255 integer BEFORE any of this
-// runs, so the only text ever spliced into `wx` is exactly two hex digits
-// derived from that already-range-checked int -- never raw user text. That
-// validation is the layer that actually closes any injection surface here;
-// `dispatch_write`'s cmd_noeval attempt below is wired in for consistency
-// with every other address-scoped write in this project (comments/funcs/
-// flags/bookmarks/patches), not because there is a free-text argument left
-// for it to protect -- same "nothing new to harden, wired in anyway"
-// finding already recorded for `patches`' INSERT.
-// Physically re-reads exactly one byte via `p8` (bypassing the
-// is_initialized-gated `has_value` machinery `window_rows` normally applies)
-// so write verification checks what is actually AT the address, not this
-// table's static, write-independent classification of whether that address
-// falls in a raw-file-backed section. See write_byte_direct's caller for why
-// this distinction matters.
 bool read_one_byte(Backend* be, int64_t addr, int* out_value) {
   std::vector<int> raw = read_p8(be, addr, 1);
   if (raw.empty()) return false;
@@ -346,7 +326,7 @@ bool write_byte_direct(Backend* be, int64_t addr, int value, std::string* err_ou
 
   const std::string prior = table_utils::trim_ascii(be->cmd("e io.cache"));
   be->cmd("e io.cache=false");
-  const std::string out = dispatch_write(be, addr, "wx " + hex);
+  const std::string out = be->cmd_noeval(addr, "wx " + hex);
   // Restore unconditionally, even on failure below -- io.cache must never be
   // left disabled by a failed write. radare2's own default is "false" (see
   // cconfig.c's SETCB), used only if the read above somehow came back empty.

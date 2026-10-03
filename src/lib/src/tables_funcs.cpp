@@ -245,11 +245,6 @@ bool calltype_readback_matches(
   return func && json_utils::str(*func, "calltype") == expected;
 }
 
-std::string dispatch_write(Backend* be, int64_t addr, const std::string& command) {
-  std::string out;
-  if (be->cmd_noeval(addr, command, &out)) return out;
-  return be->cmd(command + " @ " + json_utils::hex_addr(addr));
-}
 }  // namespace
 
 void register_funcs_table(Session& s) {
@@ -290,7 +285,7 @@ void register_funcs_table(Session& s) {
               "funcs: name must start with a letter, '_' or ':' and use only [A-Za-z0-9._:]");
           return false;
         }
-        std::string out = dispatch_write(be, r.addr, std::string("afn ") + v);
+        std::string out = be->cmd_noeval(r.addr, std::string("afn ") + v);
         if (std::string e = table_utils::command_error_text(out); !e.empty()) {
           xsql::set_vtab_error("funcs: rename failed (addr=" +
                                json_utils::hex_addr(r.addr) + "): " + e);
@@ -331,7 +326,7 @@ void register_funcs_table(Session& s) {
           return false;
         }
         if (cc == r.calltype) return true;  // no-op replay
-        std::string out = dispatch_write(be, r.addr, std::string("afc ") + cc);
+        std::string out = be->cmd_noeval(r.addr, std::string("afc ") + cc);
         if (std::string e = table_utils::command_error_text(out); !e.empty()) {
           xsql::set_vtab_error("funcs: set calltype failed (addr=" +
                                json_utils::hex_addr(r.addr) + "): " + e);
@@ -375,7 +370,7 @@ void register_funcs_table(Session& s) {
         if (compact_signature(r.prototype) == compact_signature(sig)) {
           return true;  // no-op replay (rename-only update)
         }
-        std::string out = dispatch_write(be, r.addr, std::string("afs ") + sig);
+        std::string out = be->cmd_noeval(r.addr, std::string("afs ") + sig);
         if (std::string e = table_utils::command_error_text(out); !e.empty()) {
           xsql::set_vtab_error("funcs: set prototype failed (addr=" +
                                json_utils::hex_addr(r.addr) + "): " + e);
@@ -413,15 +408,7 @@ void register_funcs_table(Session& s) {
         return std::make_unique<FuncAtIterator>(be, addr);
       }, 1.0, 1.0)
     .deletable([be = s.backend_ptr()](FuncRow& r) -> bool {
-      // Remove the function definition at this address (analysis only).
-      // `af-` takes the address as a plain trailing argument, not via `@`
-      // (unlike afn/afs/af above), so this can't reuse `dispatch_write`'s
-      // generic "command @ addr" fallback shape unchanged; the no-eval leg is
-      // the same (addr passed structurally, never spliced into `command`).
-      std::string out;
-      if (!be->cmd_noeval(r.addr, "af-", &out)) {
-        out = be->cmd("af- " + json_utils::hex_addr(r.addr));
-      }
+      std::string out = be->cmd_noeval(r.addr, "af-");
       if (std::string e = table_utils::command_error_text(out); !e.empty()) {
         xsql::set_vtab_error("funcs: DELETE failed (addr=" +
                              json_utils::hex_addr(r.addr) + "): " + e);
@@ -440,7 +427,7 @@ void register_funcs_table(Session& s) {
       int64_t addr = 0;
       if (!table_utils::exact_write_int64(argv[0], "funcs: addr", addr)) return false;
       const std::string at = json_utils::hex_addr(addr);
-      if (std::string e = table_utils::command_error_text(dispatch_write(be, addr, "af")); !e.empty()) {
+      if (std::string e = table_utils::command_error_text(be->cmd_noeval(addr, "af")); !e.empty()) {
         xsql::set_vtab_error("funcs: INSERT failed to define a function at " + at + ": " + e);
         return false;
       }
@@ -448,7 +435,7 @@ void register_funcs_table(Session& s) {
       if (argc > 1 && !argv[1].is_null()) {
         const char* name = argv[1].as_c_str();
         if (name && *name && r_name_check(name)) {
-          (void)dispatch_write(be, addr, std::string("afn ") + name);
+          (void)be->cmd_noeval(addr, std::string("afn ") + name);
         }
       }
       return true;

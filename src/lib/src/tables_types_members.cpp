@@ -21,11 +21,8 @@
 
 #include "tables.hpp"
 #include "direct.hpp"
-#include "json_utils.hpp"
 
-#include <algorithm>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 namespace r2xsql {
@@ -43,49 +40,7 @@ void register_types_members_table(Session& s) {
     .cache_builder([be = s.backend_ptr()](std::vector<MemberRow>& rows) {
       if (auto* api = be->direct()) {
         api->type_members_scan(rows);
-        return;
       }
-      auto kinds = json_utils::parse_tk_dump(be->cmd("tk*"));
-      if (kinds.empty()) return;
-
-      for (auto& [name, kind] : kinds) {
-        if (kind != "struct" && kind != "union" && kind != "enum") continue;
-        if (kind == "enum") {
-          auto j = be->cmd_json("tej " + name);
-          if (!j.is_object() || !j.contains("values") || !j["values"].is_object()) continue;
-          for (auto it = j["values"].begin(); it != j["values"].end(); ++it) {
-            MemberRow r;
-            r.type_name   = name;
-            r.parent_kind = "enum";
-            r.member_name = it.key();
-            r.array_size  = 0;
-            r.value       = it.value().is_number_integer()
-                                ? it.value().get<int64_t>()
-                                : 0;
-            rows.push_back(std::move(r));
-          }
-        } else {
-          auto cmd = (kind == "struct" ? std::string("tsj ") : std::string("tuj ")) + name;
-          auto j = be->cmd_json(cmd);
-          if (!j.is_object() || !j.contains("fields") || !j["fields"].is_array()) continue;
-          for (const auto& f : j["fields"]) {
-            MemberRow r;
-            r.type_name   = name;
-            r.parent_kind = kind;
-            r.member_name = json_utils::str(f, "name");
-            r.member_type = json_utils::str(f, "type");
-            r.offset      = json_utils::i64(f, "offset");
-            r.size        = json_utils::i64(f, "size");
-            r.array_size  = json_utils::i64(f, "array_size", 1);
-            if (r.array_size <= 0) r.array_size = 1;
-            rows.push_back(std::move(r));
-          }
-        }
-      }
-      std::sort(rows.begin(), rows.end(), [](const MemberRow& a, const MemberRow& b) {
-        if (a.type_name != b.type_name) return a.type_name < b.type_name;
-        return a.offset < b.offset;
-      });
     })
     .column_text ("type_name",   [](const MemberRow& r) { return r.type_name; })
     .column_text ("parent_kind", [](const MemberRow& r) { return r.parent_kind; })

@@ -1,0 +1,64 @@
+NAME=native IO maps keep metacharacters in names as data
+FILE=malloc://64
+ARGS=-e log.level=0 -i build/load.r2
+CMDS=<<CMDS
+'sql,:quiet INSERT INTO io_maps(start_addr,end_addr,paddr,perm,name) VALUES(4096,4112,4,'r-x','map ; f map_injected $(f map_subst) ''quote'' # tail' || char(10) || 'f map_newline')
+'sql,:quiet SELECT count(*) FROM io_maps WHERE start_addr=4096 AND end_addr=4112 AND paddr=4 AND perm='r-x' AND name='map ; f map_injected $(f map_subst) ''quote'' # tail' || char(10) || 'f map_newline'
+'sql,:quiet SELECT count(*) FROM flags WHERE name IN ('map_injected','map_subst','map_newline')
+'sql,:quiet DELETE FROM io_maps WHERE start_addr=4096
+'sql,:quiet SELECT count(*) FROM io_maps WHERE start_addr=4096
+'sql,:quiet SELECT count(*) FROM io_maps WHERE start_addr=0
+CMDS
+EXPECT=<<EXPECTED
+1
+0
+0
+1
+EXPECTED
+EXPECT_ERR=
+RUN
+
+NAME=native type writes preserve seek and create each supported kind
+FILE=malloc://64
+ARGS=-e log.level=0 -i build/load.r2
+CMDS=<<CMDS
+s 16
+'sql,:quiet INSERT INTO types(name,kind) VALUES('SqlStruct','struct')
+'sql,:quiet INSERT INTO types(name,kind) VALUES('SqlUnion','union')
+'sql,:quiet INSERT INTO types(name,kind) VALUES('SqlEnum','enum')
+'sql,:quiet SELECT count(*) FROM types WHERE (name='SqlStruct' AND kind='struct') OR (name='SqlUnion' AND kind='union') OR (name='SqlEnum' AND kind='enum')
+'sql,:quiet DELETE FROM types WHERE name='SqlStruct'
+'sql,:quiet DELETE FROM types WHERE name='SqlUnion'
+'sql,:quiet DELETE FROM types WHERE name='SqlEnum'
+'sql,:quiet SELECT count(*) FROM types WHERE name IN ('SqlStruct','SqlUnion','SqlEnum')
+s
+CMDS
+EXPECT=<<EXPECTED
+3
+0
+0x10
+EXPECTED
+EXPECT_ERR=
+RUN
+
+NAME=SQL comment and assembly arguments do not expand commands
+FILE=malloc://64
+ARGS=-e log.level=0 -i build/load.r2 -a x86 -b 64
+CMDS=<<CMDS
+'sql,:quiet INSERT INTO comments(addr,text) VALUES(4,'comment;f comment_injected $(f comment_subst)')
+'sql,:quiet SELECT count(*) FROM comments WHERE addr=4 AND text='comment;f comment_injected $(f comment_subst)'
+'sql,:quiet SELECT size FROM assemble WHERE asm='nop' AND addr=16
+'sql,:quiet SELECT size FROM assemble WHERE asm='nop $(f assemble_injected)'
+'sql,:quiet SELECT count(*) FROM flags WHERE name IN ('comment_injected','comment_subst','assemble_injected')
+'sql,:quiet DELETE FROM comments WHERE addr=4
+'sql,:quiet SELECT count(*) FROM comments WHERE addr=4
+CMDS
+EXPECT=<<EXPECTED
+1
+1
+0
+0
+0
+EXPECTED
+EXPECT_ERR=
+RUN

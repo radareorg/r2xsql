@@ -286,7 +286,7 @@ The plugin uses the host RCore; embedding and tests use these backends:
 
 The in-process backend reads analysis, flags, symbols, binary metadata, IO maps,
 write caches, types, and runtime catalogs through native libr APIs. The command
-producers remain available to the mock backend. Instruction/operand text
+fallbacks support mock responses where needed. Instruction/operand text
 rendering and byte/ROP searches still use radare2's command handlers to preserve
 their rendering, search configuration, and hit behavior.
 

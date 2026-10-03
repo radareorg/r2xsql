@@ -104,15 +104,9 @@ struct ReadCstrRow {
 enum Col { kContent = 0, kLength = 1, kSection = 2, kType = 3,
            kTruncated = 4, kError = 5, kAddr = 6, kMaxLen = 7 };
 
-// Seeked no-eval dispatch for `pszj <max_len>`, mirroring
-// table_utils::assemble_hex's exact shape (try cmd_noeval first, fall back
-// to the plain `@ <addr>`-suffixed command on every backend that reports it
-// unsupported) -- kept local since this table is the only user.
 std::string dispatch_read_cstr(Backend* be, int64_t addr, int64_t max_len) {
   const std::string command = "pszj " + std::to_string(max_len);
-  std::string out;
-  if (be->cmd_noeval(addr, command, &out)) return out;
-  return be->cmd(command + " @ " + json_utils::hex_addr(addr));
+  return be->cmd_noeval(addr, command);
 }
 
 ReadCstrRow run_read_cstr(Backend* be, int64_t addr, int64_t max_len) {

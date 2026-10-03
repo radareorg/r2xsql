@@ -487,6 +487,11 @@ class Api {
   virtual bool entry_address(int64_t& out) = 0;
   virtual void relocs_scan(std::vector<RelocRow>& out) = 0;
   virtual void type_members_scan(std::vector<MemberRow>& out) = 0;
+  virtual bool type_create(const std::string& name, const std::string& kind) = 0;
+  virtual bool type_delete(const std::string& name) = 0;
+  virtual bool io_map_create(int64_t addr, uint64_t size, int64_t paddr,
+                             const std::string& perm, const std::string& name) = 0;
+  virtual bool io_map_delete(int64_t id) = 0;
   virtual void types_scan(std::vector<TypeRow>& out) = 0;
   virtual void projects_scan(std::vector<ProjectRow> &out) = 0;
   virtual void libs_scan(std::vector<LibRow> &out) = 0;

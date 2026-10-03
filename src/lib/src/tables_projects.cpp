@@ -47,7 +47,7 @@ void register_projects_table(Session& s) {
         xsql::set_vtab_error("projects: refusing to delete an unsafe/empty project name");
         return false;
       }
-      if (std::string e = table_utils::command_error_text(be->cmd("P- " + r.name)); !e.empty()) {
+      if (std::string e = table_utils::command_error_text(be->cmd("'P- " + r.name)); !e.empty()) {
         xsql::set_vtab_error("projects: DELETE failed (name=" + r.name + "): " + e);
         return false;
       }

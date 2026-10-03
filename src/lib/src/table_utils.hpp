@@ -134,76 +134,11 @@ inline size_t quick_count(Backend* be, direct::Collection collection,
   }
 }
 
-// Fixed seek anchor for structural no-eval dispatch of a command that is NOT
-// address-scoped at all -- currently only radare2's type-system commands,
-// `td`/`t-` (see tables_types.cpp's INSERT/DELETE). Each address-scoped
-// table write has a real row address to pass to `Backend::cmd_noeval`; the type system has none (a
-// struct/union/enum definition is not tied to any address). Verified against
-// radare2's own source rather than assumed: `cmd_type.inc.c`'s handlers for
-// both `td` (case 'd', the `input[1]==' '` branch) and `t-` (case '-') read
-// only from `core->anal` -- never `core->addr` or the current seek -- so
-// which address is current during their dispatch is unobservable to them,
-// and any fixed value works. `r_core_call_at` (`libr/core/cmd.c`) also skips
-// the seek entirely when the target already equals the current position
-// (`mustseek = addr != oaddr`), so this constant is not even guaranteed to
-// cost a seek; when it does, that cost is the same plain `r_io_seek` +
-// block-buffer re-read (restored right after -- `cmd_noeval`'s seek is
-// strictly temporary) that every other ported table's write already pays
-// whenever its own real address differs from the current position. 0 was
-// chosen simply because it needs no session state to produce.
-constexpr int64_t kTypeSystemAnchorAddr = 0;
-
-//
-// `noeval_command` and `fallback_command` may differ: a command whose
-// fallback needs r2's own quoting to survive `r_core_cmd0`'s command-chaining
-// evaluation (e.g. `td` wrapped in `json_utils::r2_quote`) must NOT be quoted
-// for the no-eval path -- `cmd_noeval` already never evaluates that grammar
-// (it dispatches through `r_cmd_call`, which does no re-scanning at all), so
-// a quote wrapper would be taken as literal argument text instead of being
-// stripped the way `r_core_cmd0`'s evaluator strips it.
-inline std::string dispatch_type_write(Backend* be, const std::string& noeval_command,
-                                        const std::string& fallback_command) {
-  std::string out;
-  if (be->cmd_noeval(kTypeSystemAnchorAddr, noeval_command, &out)) return out;
-  return be->cmd(fallback_command);
-}
-
-// Convenience overload for when the same command text is correct on both
-// paths (e.g. `t-`, which never needed quoting on either path).
-inline std::string dispatch_type_write(Backend* be, const std::string& command) {
-  return dispatch_type_write(be, command, command);
-}
-
-// Assemble `asm_text` at `addr` via radare2's `pa` command (verified live
-// against the current radare2 build: `pa <asm>` prints a bare hexpairs line
-// on success -- no JSON mode exists, confirmed against `cmd_print.inc.c`'s
-// `cmd_pa`/help_msg_pa -- and prints NOTHING to stdout on failure; its
-// diagnostic, e.g. "Cannot assemble '<asm>' at line 1", goes to stderr via
-// R_LOG_ERROR and is invisible to Backend::cmd()/cmd_noeval's captured
-// output, so an empty result is the only failure signal available here).
-//
-//
-// `asm_text` MUST already pass `json_utils::valid_asm_source_text` before
-// this is called (not re-checked here, so a caller can produce its own
-// table-specific error message) -- that charset allowlist is what makes
-// splicing `asm_text` unquoted into the command safe on every backend, the
-// same reasoning `patches`' hex-validated `wx` path and `rop_gadgets`'
-// charset-validated `pattern` already established; cmd_noeval is layered on
-// top for defense-in-depth (same "wired in anyway... not because a real gap
-// was found here" posture tables_patches.cpp documents for its own `wx`),
-// not because the charset guarantee alone is insufficient.
-//
-// Returns false (leaving `out_hex` untouched) when radare2 produced no
-// usable output at all -- a bad mnemonic, an operand radare2's assembler
-// rejects, or (defensively) a result that isn't valid hex.
+// Assemble at addr without command expansion; pa prints hex on success.
 inline bool assemble_hex(Backend* be, int64_t addr, const std::string& asm_text,
                           std::string* out_hex) {
   const std::string command = "pa " + asm_text;
-  std::string out;
-  if (!be->cmd_noeval(addr, command, &out)) {
-    out = be->cmd(command + " @ " + json_utils::hex_addr(addr));
-  }
-  out = trim_ascii(out);
+  std::string out = trim_ascii(be->cmd_noeval(addr, command));
   if (out.empty() || !json_utils::valid_hex_bytes(out)) return false;
   *out_hex = out;
   return true;

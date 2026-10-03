@@ -48,11 +48,6 @@ void build_comments(Backend* be, std::vector<CommentRow>& rows) {
   }
 }
 
-std::string dispatch_write(Backend* be, int64_t addr, const std::string& command) {
-  std::string out;
-  if (be->cmd_noeval(addr, command, &out)) return out;
-  return be->cmd(command + " @ " + json_utils::hex_addr(addr));
-}
 }  // namespace
 
 void register_comments_table(Session& s) {
@@ -93,7 +88,7 @@ void register_comments_table(Session& s) {
           return true;
         }
         std::string cmd = "CCu base64:" + json_utils::base64_encode(text);
-        if (std::string e = table_utils::command_error_text(dispatch_write(be, r.addr, cmd));
+        if (std::string e = table_utils::command_error_text(be->cmd_noeval(r.addr, cmd));
             !e.empty()) {
           xsql::set_vtab_error("comments: UPDATE failed: " + e);
           return false;
@@ -102,7 +97,7 @@ void register_comments_table(Session& s) {
         return true;
       })
     .deletable([be = s.backend_ptr()](CommentRow& r) -> bool {
-      if (std::string e = table_utils::command_error_text(dispatch_write(be, r.addr, "CC-"));
+      if (std::string e = table_utils::command_error_text(be->cmd_noeval(r.addr, "CC-"));
           !e.empty()) {
         xsql::set_vtab_error("comments: DELETE failed: " + e);
         return false;
@@ -128,7 +123,7 @@ void register_comments_table(Session& s) {
         return true;
       }
       std::string cmd = "CCu base64:" + json_utils::base64_encode(body);
-      if (std::string e = table_utils::command_error_text(dispatch_write(be, addr, cmd));
+      if (std::string e = table_utils::command_error_text(be->cmd_noeval(addr, cmd));
           !e.empty()) {
         xsql::set_vtab_error("comments: INSERT failed: " + e);
         return false;

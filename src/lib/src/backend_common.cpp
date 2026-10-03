@@ -4,8 +4,13 @@
 // This file is licensed under the Human-Origin Source License v1.0.
 // See LICENSE.
 #include <r2xsql/backend.hpp>
+#include "json_utils.hpp"
 
 namespace r2xsql {
+
+std::string Backend::cmd_noeval(int64_t addr, std::string_view command) {
+  return cmd("'@" + json_utils::hex_addr(addr) + "'" + std::string(command));
+}
 
 nlohmann::json Backend::cmd_json(std::string_view command, BackendError* err) {
   std::string text = cmd(command);

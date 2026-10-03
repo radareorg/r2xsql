@@ -3,30 +3,7 @@
 //
 // This file is licensed under the Human-Origin Source License v1.0.
 // See LICENSE.
-// types — radare2 type system catalog.
-//
-// Backed by:
-//   tk*   list of `NAME=KIND` pairs (atomic|struct|union|enum|typedef|func)
-//   tj    array of atomic-type records with size + pf format
-//   tsj N struct definition (name, format, fields[])
-//   tuj N union definition  (same shape as tsj)
-//   tej N enum  definition  (name, values{key:int, ...})
-//
-//
-// Both writes here (`td` for INSERT, `t-` for DELETE) dispatch through
-// Backend::cmd_noeval on the in-process (libr) backend -- the fifth
-// (`comments`/`funcs`/`flags`/`bookmarks` came first) and structurally
-// DIFFERENT rollout of that no-eval idiom: every prior table's write had a
-// real row address to seek to; `td`/`t-` have none at all -- a struct/union/
-// enum definition is not tied to any address, and `t-` deletes purely by
-// name. Verified against radare2's own source (cmd_type.inc.c), not assumed:
-// both handlers read only `core->anal`, never `core->addr`/the current seek,
-// so `Backend::cmd_noeval`'s mandatory seek target is genuinely unobservable
-// to either one -- see `table_utils::kTypeSystemAnchorAddr` /
-// `dispatch_type_write` (table_utils.hpp) for the fixed-anchor helper this
-// uses instead of a per-row address, and the full citation. `t-`'s name
-// argument is charset-validated; INSERT builds an empty declaration from
-// the validated name and kind before calling dispatch_type_write.
+// types — native type catalog with empty struct/union/enum creation.
 
 #include <r2xsql/session.hpp>
 #include <r2xsql/backend.hpp>
@@ -35,12 +12,8 @@
 #include <r_util.h>
 #include "tables.hpp"
 #include "direct.hpp"
-#include "json_utils.hpp"
-#include "table_utils.hpp"
 
-#include <algorithm>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 namespace r2xsql {
@@ -58,64 +31,6 @@ void register_types_table(Session& s) {
     .cache_builder([be = s.backend_ptr()](std::vector<TypeRow>& rows) {
       if (auto* api = be->direct()) {
         api->types_scan(rows);
-        return;
-      }
-      auto kinds = json_utils::parse_tk_dump(be->cmd("tk*"));
-      if (kinds.empty()) return;
-
-      // Enrich atomics with size + pf format from `tj`.
-      std::unordered_map<std::string, std::pair<int64_t, std::string>> atomic_info;
-      auto tj = be->cmd_json("tj");
-      if (tj.is_object()) {
-        const auto& arr = tj.contains("types") ? tj["types"] : nlohmann::json::array();
-        for (const auto& j : arr) {
-          atomic_info[json_utils::str(j, "type")] =
-              {json_utils::i64(j, "size", -1), json_utils::str(j, "format")};
-        }
-      }
-
-      rows.reserve(kinds.size());
-      for (auto& [name, kind] : kinds) {
-        TypeRow r;
-        r.name = name;
-        r.kind = kind;
-        r.size = -1;
-        if (kind == "atomic" || kind == "type") {
-          auto it = atomic_info.find(name);
-          if (it != atomic_info.end()) {
-            r.size   = it->second.first;
-            r.format = it->second.second;
-          }
-        } else if (kind == "struct" || kind == "union") {
-          auto cmd = (kind == "struct" ? std::string("tsj ") : std::string("tuj ")) + name;
-          auto j = be->cmd_json(cmd);
-          if (j.is_object()) {
-            r.format = json_utils::str(j, "format");
-            int64_t total = 0;
-            int64_t max_field = 0;
-            if (j.contains("fields") && j["fields"].is_array()) {
-              for (const auto& f : j["fields"]) {
-                int64_t sz = json_utils::i64(f, "size");
-                int64_t ar = json_utils::i64(f, "array_size", 1);
-                if (ar <= 0) ar = 1;
-                int64_t fsize = sz * ar;
-                if (kind == "struct") total += fsize;
-                else if (fsize > max_field) max_field = fsize;
-              }
-            }
-            r.size = (kind == "struct") ? total : max_field;
-          }
-        }
-        rows.push_back(std::move(r));
-      }
-      std::sort(rows.begin(), rows.end(),
-                [](const TypeRow& a, const TypeRow& b) { return a.name < b.name; });
-      // Free running counter over the row walk above, taken AFTER the sort so
-      // ordinal reflects the same name-sorted order every column reads --
-      // matches the default cache-position rowid this table already reports
-      // (no .rowid() override exists for `types`), so ordinal and rowid agree.
-      for (size_t i = 0; i < rows.size(); ++i) {
-        rows[i].ordinal = static_cast<int64_t>(i);
       }
     })
     .column_int64("ordinal", [](const TypeRow& r) { return r.ordinal; })
@@ -130,11 +45,9 @@ void register_types_table(Session& s) {
         xsql::set_vtab_error("types: refusing to delete an unsafe/empty type name");
         return false;
       }
-      const std::string cmd = "t- " + r.name;
-      if (std::string e = table_utils::command_error_text(
-              table_utils::dispatch_type_write(be, cmd));
-          !e.empty()) {
-        xsql::set_vtab_error("types: DELETE failed (name=" + r.name + "): " + e);
+      auto* api = be->direct();
+      if (!api || !api->type_delete(r.name)) {
+        xsql::set_vtab_error("types: DELETE failed (name=" + r.name + ")");
         return false;
       }
       return true;
@@ -162,26 +75,9 @@ void register_types_table(Session& s) {
             "radare2's `td <C decl>` command instead");
         return false;
       }
-      const std::string decl = kind + " " + name + " {};";
-      // `td` is not address-scoped either (see the file header); the no-eval
-      // leg takes the declaration completely unquoted (r_cmd_call never
-      // re-scans it for ';'/'{'/'}' the way r_core_cmd0 does, so there is
-      // nothing for a quote wrapper to protect there -- and a quote wrapper
-      // would be taken as literal argument text, breaking the declaration).
-      // The fallback leg keeps the pre-existing r2_quote wrapping verbatim,
-      // since only r_core_cmd0's evaluating path needs it.
-      const std::string out = table_utils::dispatch_type_write(
-          be, "td " + decl, json_utils::r2_quote("td " + decl));
-      if (std::string e = table_utils::command_error_text(out); !e.empty()) {
-        xsql::set_vtab_error("types: INSERT failed (name=" + name + "): " + e);
-        return false;
-      }
-      // A td parser failure may log only to stderr and otherwise look like
-      // a successful no-output command -- read the name back rather than
-      // trusting the silence.
-      if (table_utils::trim_ascii(be->cmd("tk " + name)).empty()) {
-        xsql::set_vtab_error("types: INSERT failed (name=" + name +
-                             "): type was not present after td");
+      auto* api = be->direct();
+      if (!api || !api->type_create(name, kind)) {
+        xsql::set_vtab_error("types: INSERT failed (name=" + name + ")");
         return false;
       }
       return true;

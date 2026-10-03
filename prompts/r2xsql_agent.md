@@ -735,8 +735,9 @@ FROM sections WHERE perm LIKE '%x%';
 ```
 
 #### `io_maps` (writable — r2's memory map)
-Source `omj`. radare2 IO maps: the live, editable address space (distinct from the
-read-only binary `sections`/`segments`). INSERT issues `om`, DELETE issues `om-<id>`.
+Native radare2 IO maps: the live, editable address space (distinct from the
+read-only binary `sections`/`segments`). INSERT and DELETE use RIO APIs; names,
+including spaces and command metacharacters, are passed as data.
 
 | Column  | Type  | Notes                          |
 |---------|-------|--------------------------------|
@@ -1479,15 +1480,9 @@ typedef, or func needs more than a bare name to exist). For a **full**
 declaration (members, an underlying primitive, a signature), use
 radare2's `td <C declaration>` command.
 
-Neither `td` nor `t-` is address-scoped (a type definition isn't tied to any
-address, and `t-` deletes purely by name) — unlike every other writable
-table's commands, which are anchored on a real row address. On the in-process
-(libr) backend both still dispatch through the structural no-eval path
-(`Backend::cmd_noeval`), seeked to a fixed anchor address (0) instead of a row
-address, since neither command ever consults the current seek. This is the
-same additional, structural layer every other writable table's commands get
-— on top of, never instead of, the existing name/declaration validation
-below.
+SQL type writes use `r_anal_cparse` / `r_anal_save_parsed_type` and
+`r_anal_remove_parsed_type` directly, without changing the seek or constructing
+radare2 commands. The type catalog and members are also read through native APIs.
 
 ```sql
 SELECT name, kind, size FROM types WHERE kind = 'struct' ORDER BY size DESC LIMIT 20;
@@ -1806,7 +1801,7 @@ table is an editable annotation. Each affected row issues one radare2 command.
 | `locals`    | — | `name` ⇒ `afvn <new> <old>`; `type` ⇒ `afvt <name> <type>` | — |
 | `types`     | `td "<kind> <name> {};"` (empty struct/union/enum shell only; a full declaration uses r2's `td`) | — | `t- <name>`   |
 | `projects`  | — (use `Ps <name>`) | —                 | `P- <name>`   |
-| `io_maps`   | `om $d <vaddr> <size> <paddr> <perm> <name>` (add region) | — | `om-<map_id>` (remove map) |
+| `io_maps`   | Native `r_io_map_add` / `r_io_map_set_name` | — | Native `r_io_map_del` |
 | `patches`   | `wx <hex> @ <addr>` (stage) — `patched_bytes` (raw hex) or `asm_text` (assembled via `pa` first, exactly one required) | `committed` ⇒ `1` only: `wci` (commits **ALL** pending patches, never row-selective — see the table's own section) | `wcu` (uncommitted **and** most-recently-staged row only) |
 | `bytes`     | —                   | `value` ⇒ `wx <hex> @ <addr>`, **direct/immediate** — NOT staged, bypasses `io.cache` entirely (see the table's own section for how this differs from `patches`) | —             |
 | `runtime_settings` | —          | `value` ⇒ UPDATE (validated) | —       |
@@ -1859,13 +1854,11 @@ Rules and gotchas:
   user-controlled text.** On the in-process (libr) backend, every
   address-scoped write in this table (`funcs`, `flags`, `comments`,
   `bookmarks`, `patches`' INSERT, `bytes`' UPDATE, `locals`' `name`/`type`
-  whenever the C-API leg is unavailable) and the addr-less `types` writes
+  whenever the C-API leg is unavailable)
   dispatch through a command path that never evaluates radare2's own
   `;`/`@`/`|`/backtick chaining grammar — a second, independent layer beneath
   the name/hex/signature/declaration validation each table already does.
-  This is complete: every write-capable table has been examined (`locals`
-  was the last one — its command-path fallback was missed in the original
-  sweep and closed afterward). The exceptions (`patches`' `wci`/`wcu`, and
+  The exceptions (`patches`' `wci`/`wcu`, and
   `bytes`' own `io.cache` save/set/restore calls, which must stay on the
   plain, evaluating command path because they bracket the write rather than
   carry user text through it) are fixed literal commands / config toggles
