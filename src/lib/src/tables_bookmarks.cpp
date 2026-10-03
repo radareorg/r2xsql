@@ -13,7 +13,7 @@
 // (libr) backend — the same structural no-eval idiom piloted on `comments`
 // and rolled out to `funcs`/`flags`. INSERT's `f` and DELETE's `f-` are
 // address-scoped exactly like those tables' writes, so they use the same
-// `dispatch_write(be, addr, command)` shape.
+// `be->cmd_noeval(addr, command)` shape.
 //
 // `fr <old> <new>` (the rename) is the same odd one out `flags` already hit:
 // it carries no address anywhere in its own grammar at all — radare2
@@ -53,11 +53,6 @@ struct BookmarkRow {
   std::string name;
 };
 
-std::string dispatch_write(Backend* be, int64_t addr, const std::string& command) {
-  std::string out;
-  if (be->cmd_noeval(addr, command, &out)) return out;
-  return be->cmd(command + " @ " + json_utils::hex_addr(addr));
-}
 
 class BookmarkSpaceScope {
 public:
@@ -129,10 +124,7 @@ void register_bookmarks_table(Session& s) {
         if (r.name == v) return true;
         BookmarkSpaceScope scope(*be);
         std::string cmd = "fr " + r.name + " " + v;
-        std::string out;
-        if (!be->cmd_noeval(r.addr, cmd, &out)) {
-          out = be->cmd(cmd);
-        }
+        std::string out = be->cmd_noeval(r.addr, cmd);
         if (std::string e = table_utils::command_error_text(out); !e.empty()) {
           xsql::set_vtab_error("bookmarks: rename failed: " + e);
           return false;
@@ -146,7 +138,7 @@ void register_bookmarks_table(Session& s) {
       })
     .deletable([be = s.backend_ptr()](BookmarkRow& r) -> bool {
       BookmarkSpaceScope scope(*be);
-      const std::string out = dispatch_write(be, r.addr, "f-");
+      const std::string out = be->cmd_noeval(r.addr, "f-");
       if (std::string e = table_utils::command_error_text(out); !e.empty()) {
         xsql::set_vtab_error("bookmarks: delete failed: " + e);
         return false;
@@ -177,7 +169,7 @@ void register_bookmarks_table(Session& s) {
       }
       BookmarkSpaceScope scope(*be);
       const std::string out =
-          dispatch_write(be, addr, std::string("f ") + name);
+          be->cmd_noeval(addr, std::string("f ") + name);
       if (std::string e = table_utils::command_error_text(out); !e.empty()) {
         xsql::set_vtab_error("bookmarks: insert failed: " + e);
         return false;

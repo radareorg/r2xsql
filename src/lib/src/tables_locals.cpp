@@ -102,11 +102,6 @@ std::string compact_type(std::string_view type) {
   return out;
 }
 
-std::string dispatch_write(Backend* be, int64_t addr, const std::string& command) {
-  std::string out;
-  if (be->cmd_noeval(addr, command, &out)) return out;
-  return be->cmd(command + " @ " + json_utils::hex_addr(addr));
-}
 
 bool local_readback_matches(Backend* be, const LocalRow& before,
                             const std::string& expected_name,
@@ -166,7 +161,7 @@ void register_locals_table(Session& s) {
             return false;
           }
         } else {
-          std::string out = dispatch_write(be, r.func_addr,
+          std::string out = be->cmd_noeval(r.func_addr,
                                            std::string("afvn ") + v + " " + r.name);
           if (std::string e = table_utils::command_error_text(out); !e.empty()) {
             xsql::set_vtab_error("locals: rename failed (func_addr=" +
@@ -215,7 +210,7 @@ void register_locals_table(Session& s) {
             return false;
           }
         } else {
-          std::string out = dispatch_write(be, r.func_addr,
+          std::string out = be->cmd_noeval(r.func_addr,
                                            std::string("afvt ") + r.name + " " + v);
           if (std::string e = table_utils::command_error_text(out); !e.empty()) {
             xsql::set_vtab_error("locals: retype failed (func_addr=" +

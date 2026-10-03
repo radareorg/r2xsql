@@ -72,30 +72,6 @@
 // rolled out to `funcs`/`flags`/`bookmarks`/`types`. Its three writes split
 // two different ways, not one:
 //
-//   - INSERT's `wx <hex> @ <addr>` IS address-scoped, the same shape every
-//     prior table's address-scoped write already used -- it dispatches
-//     through the same `dispatch_write(be, addr, command)` helper. Its own
-//     free-text argument (`patched_bytes`) is already constrained, before
-//     this dispatch ever runs, to `json_utils::valid_hex_bytes`'s charset
-//     ([0-9a-fA-F], even length) -- a set that structurally cannot contain
-//     `;`/`@`/`|`/backtick, so the hex validator alone already makes chaining
-//     through THIS argument impossible. cmd_noeval adds no NEW closed hole
-//     for this one input; it is wired in anyway for defense-in-depth and
-//     consistency with the other five tables' address-scoped writes, not
-//     because a real gap was found here.
-//   - UPDATE's `wci` and DELETE's `wcu` are NEITHER address-scoped NOR
-//     user-parameterized at all: both are issued as fixed, literal strings
-//     with zero interpolation (see the two `be->cmd(...)` call sites below --
-//     neither ever concatenates anything into the command text). Unlike
-//     `td`/`t-` (also addr-less, but whose user-supplied declaration/name IS
-//     a real injection surface, which is why `types` needed
-//     `table_utils::dispatch_type_write`'s fixed anchor), there is no
-//     attacker-controlled text anywhere in `wci`'s or `wcu`'s construction to
-//     protect -- inventing a fixed-anchor cmd_noeval call for a hardcoded
-//     literal would add a code path with no security benefit, so both stay
-//     on the plain `Backend::cmd()` path, unchanged. This is a deliberate,
-//     audited "nothing to harden" finding, not an oversight: with it, all six
-//     write-capable tables in this project have been examined for this idiom.
 
 #include <cstdint>
 #include <string>
@@ -115,11 +91,6 @@ namespace r2xsql {
 
 namespace {
 
-std::string dispatch_write(Backend* be, int64_t addr, const std::string& command) {
-  std::string out;
-  if (be->cmd_noeval(addr, command, &out)) return out;
-  return be->cmd(command + " @ " + json_utils::hex_addr(addr));
-}
 
 using direct::PatchRow;
 
@@ -351,7 +322,7 @@ void register_patches_table(Session& s) {
       // even though the hex validator above already makes this argument
       // injection-proof on its own.
       if (std::string e = table_utils::command_error_text(
-              dispatch_write(be, addr, "wx " + hex));
+              be->cmd_noeval(addr, "wx " + hex));
           !e.empty()) {
         xsql::set_vtab_error(
             "patches: INSERT failed (addr=" + json_utils::hex_addr(addr) + "): " + e);

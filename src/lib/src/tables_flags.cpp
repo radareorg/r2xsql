@@ -23,7 +23,7 @@
 // Backend::cmd_noeval on the in-process (libr) backend — the same structural
 // no-eval idiom piloted on `comments` and rolled out to `funcs`. `f`/`f-` are
 // address-scoped exactly like those tables' writes, so they use the same
-// `dispatch_write(be, addr, command)` shape.
+// `be->cmd_noeval(addr, command)` shape.
 //
 // `fr <old> <new>` is the odd one out: unlike every other write in this
 // family, it carries NO address anywhere in its own grammar at all — radare2
@@ -68,11 +68,6 @@ namespace r2xsql {
 namespace {
 using direct::FlagRow;
 
-std::string dispatch_write(Backend* be, int64_t addr, const std::string& command) {
-  std::string out;
-  if (be->cmd_noeval(addr, command, &out)) return out;
-  return be->cmd(command + " @ " + json_utils::hex_addr(addr));
-}
 
 void build_flags(Backend* be, std::vector<FlagRow>& rows) {
   auto arr = be->cmd_json("fj");
@@ -181,10 +176,7 @@ void register_flags_table(Session& s) {
           return true;
         }
         std::string cmd = std::string("fr ") + r.name + " " + v;
-        std::string out;
-        if (!be->cmd_noeval(r.addr, cmd, &out)) {
-          out = be->cmd(cmd);
-        }
+        std::string out = be->cmd_noeval(r.addr, cmd);
         if (std::string e = table_utils::command_error_text(out); !e.empty()) {
           xsql::set_vtab_error("flags: rename failed (addr=" +
                                json_utils::hex_addr(r.addr) + "): " + e);
@@ -203,7 +195,7 @@ void register_flags_table(Session& s) {
     .column_text ("realname", [](const FlagRow& r) { return r.realname; })
     .column_text ("space",    [](const FlagRow& r) { return r.space; })
     .deletable([be = s.backend_ptr()](FlagRow& r) -> bool {
-      std::string out = dispatch_write(be, r.addr, "f-");
+      std::string out = be->cmd_noeval(r.addr, "f-");
       if (std::string e = table_utils::command_error_text(out); !e.empty()) {
         xsql::set_vtab_error("flags: DELETE failed (addr=" +
                              json_utils::hex_addr(r.addr) + "): " + e);
@@ -229,7 +221,7 @@ void register_flags_table(Session& s) {
             "flags: name must start with a letter, '_' or ':' and use only [A-Za-z0-9._:]");
         return false;
       }
-      std::string out = dispatch_write(be, addr, std::string("f ") + name);
+      std::string out = be->cmd_noeval(addr, std::string("f ") + name);
       if (std::string e = table_utils::command_error_text(out); !e.empty()) {
         xsql::set_vtab_error(std::string("flags: INSERT failed (name=") + name + "): " + e);
         return false;

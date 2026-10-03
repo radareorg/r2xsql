@@ -44,8 +44,7 @@ threads = dependency('threads')
 xsql_dep = subproject('libxsql').get_variable('xsql_dep')
 
 # --- r2xsql core (all of src/lib/src is the full/libr plugin set) -------------
-# The 43 core table adapters plus backend_libr.cpp + direct_libr.cpp, which are
-# including the native backend.
+# Compile the SQL tables and native backend into the plugin.
 r2xsql_srcs = files(
   'src/lib/src/backend_common.cpp',
   'src/lib/src/backend_libr.cpp',

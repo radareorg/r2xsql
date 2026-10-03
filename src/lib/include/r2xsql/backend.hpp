@@ -12,11 +12,10 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
-#include <optional>
 #include <string>
 #include <string_view>
-#include <vector>
 
 #include <nlohmann/json.hpp>
 
@@ -55,30 +54,9 @@ public:
   // Native table operations. MockBackend uses the command fallbacks.
   virtual direct::Api* direct() { return nullptr; }
 
-  // Structural no-eval command dispatch, for write paths on the in-process
-  // libr backend only. Sends `command` straight to its top-level r2 command
-  // handler, seeked to `addr` first, WITHOUT evaluating radare2's own
-  // command-chaining grammar (`;`, `@`, `|`, backtick, ...) at all — so any
-  // such character embedded in an argument to `command` (e.g. user-controlled
-  // text) is passed through as inert data to that one handler and can never be
-  // reinterpreted as chaining into a second command. This is an ADDITIONAL
-  // layer alongside a table's existing input validation/escaping, never a
-  // replacement for it — callers keep validating input exactly as before.
-  //
-  // `command` must be a single command's own text with NO `@`/`;`/`|`/backtick
-  // needed for addressing or chaining — pass the target address via `addr`
-  // instead of splicing `@ <addr>` into the string.
-  //
-  // Returns false and leaves `out` untouched when this backend cannot dispatch
-  // this way (MockBackend has no live radare2) —
-  // the caller must then fall back to its existing cmd()-based path unchanged.
-  // Returns true and fills `out` with the command's textual output otherwise;
-  // that output is checked for an error exactly like cmd()'s is (a `true`
-  // return means "dispatched", not "succeeded" — an in-band diagnostic in
-  // `out` is still possible and must still be checked).
-  virtual bool cmd_noeval(int64_t /*addr*/, std::string_view /*command*/, std::string* /*out*/) {
-    return false;
-  }
+  // Dispatch one command at addr without expanding r2 command syntax.
+  // Libr uses r_core_call_str_at; command-only consumers use '@addr'command.
+  virtual std::string cmd_noeval(int64_t addr, std::string_view command);
 };
 
 // ---------------------------------------------------------------------------

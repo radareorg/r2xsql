@@ -10,7 +10,6 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <vector>
 
 namespace r2xsql::json_utils {
@@ -28,16 +27,6 @@ bool        boolean(const nlohmann::json& obj, std::string_view key, bool dflt =
 // is present. Use this for every "the address of this record" lookup
 // so the tables don't break when r2 renames a key between versions.
 int64_t     i64_addr(const nlohmann::json& obj, int64_t dflt = 0);
-
-// Quote a string for use as a shell-ish r2 command argument. r2 itself is
-// not a shell, but spaces, quotes and backslashes need escaping in CC args.
-
-
-
-
-// Quote a string for use as a shell-ish r2 command argument. r2 itself is
-// not a shell, but spaces, quotes and backslashes need escaping in CC args.
-std::string r2_quote(std::string_view s);
 
 // True iff `type` is a safe C type string to splice into an r2 `afvt` command
 // unquoted: a non-empty string of type-syntax characters only —
@@ -103,6 +92,5 @@ void hex_decode_partial(std::string_view hex, std::vector<uint8_t>& out);
 // store the quotes literally.
 std::string base64_encode(std::string_view s);
 
-std::unordered_map<std::string, std::string> parse_tk_dump(std::string_view tk);
 
 }  // namespace r2xsql::json_utils

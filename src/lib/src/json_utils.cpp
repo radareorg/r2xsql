@@ -4,7 +4,6 @@
 // This file is licensed under the Human-Origin Source License v1.0.
 // See LICENSE.
 #include "json_utils.hpp"
-#include <r_util.h>
 
 #include <cctype>
 #include <cstdio>
@@ -55,26 +54,6 @@ bool boolean(const nlohmann::json& obj, std::string_view key, bool dflt) {
   if (it->is_boolean()) return it->get<bool>();
   if (it->is_number()) return it->get<double>() != 0.0;
   return dflt;
-}
-
-
-
-
-std::string r2_quote(std::string_view s) {
-  std::string out;
-  out.reserve(s.size() + 2);
-  out.push_back('"');
-  for (char c : s) {
-    switch (c) {
-      case '\\': out += "\\\\"; break;
-      case '"':  out += "\\\""; break;
-      case '\n': out += "\\n";  break;
-      case '\r': out += "\\r";  break;
-      default:   out.push_back(c);
-    }
-  }
-  out.push_back('"');
-  return out;
 }
 
 bool valid_type_text(std::string_view type) {
@@ -238,43 +217,6 @@ std::string base64_encode(std::string_view s) {
     out.push_back(tbl[(v >> 12) & 0x3f]);
     out.push_back(tbl[(v >> 6) & 0x3f]);
     out.push_back('=');
-  }
-  return out;
-}
-
-std::unordered_map<std::string, std::string> parse_tk_dump(std::string_view tk) {
-  std::unordered_map<std::string, std::string> out;
-  size_t pos = 0;
-  // tk* emits one key=value record per line; type names can contain spaces.
-  const bool multiline = tk.find('\n') != std::string_view::npos;
-  auto is_sep = [multiline](char c) { return c == '\n' || (!multiline && c == ' '); };
-  while (pos < tk.size()) {
-    size_t end = pos;
-    while (end < tk.size() && !is_sep(tk[end])) ++end;
-    std::string_view rec(tk.data() + pos, end - pos);
-    pos = end + 1;
-
-    while (!rec.empty() && rec.front() == '\r') {
-      rec.remove_prefix(1);
-    }
-    while (!rec.empty() && (rec.back() == '\r')) {
-      rec.remove_suffix(1);
-    }
-    if (rec.empty() || rec.front() == '#') continue;
-
-    auto eq = rec.find('=');
-    if (eq == std::string_view::npos) continue;
-
-    std::string name(rec.substr(0, eq));
-    std::string kind(rec.substr(eq + 1));
-    // Member rows look like `NAME.field=...`; only top-level entries are types.
-    if (name.find('.') != std::string::npos) continue;
-    if (kind != "atomic" && kind != "struct" && kind != "union" &&
-        kind != "enum" && kind != "typedef" && kind != "func" &&
-        kind != "type") {
-      continue;
-    }
-    out.emplace(std::move(name), std::move(kind));
   }
   return out;
 }

@@ -284,33 +284,14 @@ class LibrBackend : public Backend {
     return out;
   }
 
-  // Structural no-eval dispatch: `r_core_call_str_at` (core.c) seeks to `addr`
-  // then hands `command` straight to `r_cmd_call`, which indexes directly into
-  // the top-level command handler keyed on the command's own first character
-  // and passes the remainder as that handler's raw argument — the command
-  // string is never re-scanned for `;`/`@`/`|`/backtick chaining the way
-  // `r_core_cmd0` (what `cmd()` above ultimately runs) does. A `;`/`@`/`|`/
-  // backtick inside an argument therefore cannot start a second command; it is
-  // opaque data to whichever single handler this dispatch reaches.
-  bool cmd_noeval(int64_t addr, std::string_view command, std::string* out) override {
-    if (!core_) return false;
+  std::string cmd_noeval(int64_t addr, std::string_view command) override {
+    if (!core_) return {};
     std::lock_guard lock(m_);
     std::string c(command);
     char* res = r_core_call_str_at(core_, static_cast<ut64>(addr), c.c_str());
-    if (!res) {
-      // r_core_call_str_at returns NULL only when the command's own first
-      // character has no registered handler at all -- a dispatch-routing
-      // failure, not a normal validation rejection (those come back as
-      // in-band diagnostic text, exactly like cmd()'s failures). Surface it
-      // through the same "unknown command" marker table_utils::
-      // command_error_text already recognizes, so every caller's existing
-      // error check catches this without a second code path.
-      if (out) *out = "r2xsql: unknown command for no-eval dispatch";
-      return true;
-    }
-    if (out) *out = res;
+    std::string out = res ? res : "r2xsql: unknown command for no-eval dispatch";
     free(res);
-    return true;
+    return out;
   }
 
   bool alive() const override { return core_ != nullptr; }
