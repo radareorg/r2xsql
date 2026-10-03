@@ -61,16 +61,20 @@ the in-process plugin depends on radare2's ABI.
 
 ## Using the plugin
 
-Load the built module and analyze a target:
+The recommended way to install the plugin is with r2pm:
 
 ```sh
-r2 -A -c 'L /absolute/path/core_r2xsql.so' ./target
+r2pm -U
+r2pm -ci r2xsql
 ```
 
-Use the actual `.so`, `.dylib`, or `.dll` path; omit the `L` command once the
-plugin is installed in radare2's plugin directory. `-i <plugin>` also works on
-Linux and macOS, but radare2 6.2.2 on Windows reads a `.dll` given to `-i` as a
-script and fails; `L` works everywhere. At the radare2 prompt:
+The installed plugin loads automatically when radare2 starts:
+
+```sh
+r2 -A ./target
+```
+
+At the radare2 prompt:
 
 ```text
 sql SELECT name, size FROM funcs ORDER BY size DESC LIMIT 10
@@ -81,7 +85,7 @@ q
 For a one-shot query:
 
 ```sh
-r2 -q -A -c 'L /absolute/path/core_r2xsql.so' \
+r2 -q -A \
   -c '"sql SELECT name, size FROM funcs WHERE size > 100 LIMIT 5"' ./target
 ```
 
@@ -100,6 +104,17 @@ sql,?
 
 Use `sql,:tsv` for tab-separated output. Native tables have no SQL NULL type;
 in particular, `sql,:json` omits NULL and empty-string cells.
+
+For a local build, `make user-install` also installs the plugin for automatic
+loading. To load a build without installing it, use either `-i` or `L`:
+
+```sh
+r2 -i /absolute/path/core_r2xsql.so -A ./target
+r2 -A -c 'L /absolute/path/core_r2xsql.so' ./target
+```
+
+Use the actual `.so`, `.dylib`, or `.dll` path. Inside an existing radare2
+session, use `L /absolute/path/core_r2xsql.so`.
 
 ## Build
 
@@ -187,16 +202,14 @@ The same command works through r2pipe and radare2's HTTP `/cmd/` endpoint.
 
 ## HTTP access through radare2
 
-Load the plugin in a persistent radare2 session and start r2's web server:
+With the plugin installed, start r2's web server in a persistent session:
 
 ```sh
-r2 -N -q -c 'L /absolute/path/core_r2xsql.so' \
+r2 -N -q \
   -e http.bind=127.0.0.1 -e http.port=9090 -c aa -c '=h' ./target
 ```
 
-Use the plugin's actual `.so`, `.dylib`, or `.dll` path. If it is installed,
-omit the `L` command. Send a quoted SQL command through r2's `POST /cmd/`
-endpoint:
+Send a quoted SQL command through r2's `POST /cmd/` endpoint:
 
 ```sh
 curl --data-binary '"sql SELECT name, size FROM funcs WHERE size > 100 LIMIT 5"' \
