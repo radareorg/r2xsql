@@ -3,12 +3,6 @@
 //
 // This file is licensed under the Human-Origin Source License v1.0.
 // See LICENSE.
-// grep — composite view over funcs/flags/imports/exports/sections/comments.
-// Each row tags its source via `kind`; native records (or r2pipe command
-// results) are read per query, so the view is always live. The `pattern` pseudo-column
-// pushes a case-insensitive SQL `LIKE`-style filter down: `WHERE pattern = 'x%'`
-// matches `name`/`full_name` without materialising the full cache. An
-// unfiltered scan returns every entity flat.
 
 #include <cctype>
 #include <memory>

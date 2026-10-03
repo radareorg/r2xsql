@@ -3,18 +3,7 @@
 //
 // This file is licensed under the Human-Origin Source License v1.0.
 // See LICENSE.
-// comments — `CCj` for read; `CCu <text> @ <addr>` for UPDATE; `CC- @ <addr>`
-// for DELETE. Writes go through Backend so any backend (libr/r2pipe) works.
 //
-// Pilot table for the structural no-eval write dispatch (Backend::cmd_noeval):
-// every write here is already address-scoped (`@ <addr>`), which maps
-// directly onto that primitive's (addr, command) shape. On the libr backend,
-// each write below dispatches straight to its command handler instead of
-// through radare2's separator-evaluating command grammar; on every other
-// backend (r2pipe, mock) cmd_noeval reports "unsupported" and the exact same
-// `cmd()` + spliced `@ <addr>` string this table always used runs unchanged.
-// The existing input handling (base64-encoding the comment text) is kept
-// as-is — this is an additional, structural layer, not a replacement for it.
 //
 // The READ path is a separate, later change: `CCj` is already a single
 // full-scan command (not an N+1-per-function shape), and reading radare2's
@@ -27,17 +16,6 @@
 // for the full citation. This is unrelated to, and does not modify, the
 // cmd_noeval write path above.
 //
-// The WRITE path (this table's `text` UPDATE and INSERT) is ALSO now
-// C-API-backed on the libr flavor, a separate, later port from both of the
-// above: a benchmark measured a bulk workload (N=500 repeated
-// sets, simulating a bulk-annotate script) at 30-40x over the CMD leg
-// (`r_core_call_str_at("CCu base64:...")`, the SAME dispatch this table
-// already issues), with exact field/behavior parity once the API leg
-// reproduces `CCu`'s own dedup-skip quirk (see `Api::comment_set` in
-// `direct.hpp`). Proven live, not just cited: a substring-of-existing-text
-// UPDATE is a silent no-op on both legs; a genuine overwrite lands on both.
-// On every non-libr backend (r2pipe, mock), `Backend::direct()` returns
-// nullptr and the exact `cmd_noeval`/`cmd()` fallback above runs unchanged.
 
 #include <r2xsql/session.hpp>
 #include <r2xsql/backend.hpp>
@@ -70,10 +48,6 @@ void build_comments(Backend* be, std::vector<CommentRow>& rows) {
   }
 }
 
-// Dispatch a write command scoped to `addr`. Tries the structural no-eval
-// path first (libr backend only); falls back to the original command-string
-// form (`command @ addr`) on every backend that reports it unsupported, so
-// r2pipe's behavior and command text are byte-for-byte unchanged.
 std::string dispatch_write(Backend* be, int64_t addr, const std::string& command) {
   std::string out;
   if (be->cmd_noeval(addr, command, &out)) return out;
@@ -118,10 +92,6 @@ void register_comments_table(Session& s) {
           if (v) r.text = v;
           return true;
         }
-        // Fallback (r2pipe, mock): CCu takes the comment verbatim; pass it as
-        // base64 so spaces, quotes, and `@` can't corrupt the comment or
-        // inject extra r2 commands. Kept even with the structural dispatch
-        // below: defense-in-depth, not either/or.
         std::string cmd = "CCu base64:" + json_utils::base64_encode(text);
         if (std::string e = table_utils::command_error_text(dispatch_write(be, r.addr, cmd));
             !e.empty()) {

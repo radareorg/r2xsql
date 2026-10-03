@@ -9,15 +9,6 @@
 // equality filter is pushed down to a single `afbj @ X`; an unfiltered scan
 // walks `aflj` and enumerates every function's edges lazily.
 //
-// A second, faster producer reads libr's analysis state through the C API
-// instead of running the command and parsing its JSON (see `direct.hpp`).
-// The command path below is NOT a legacy leftover: it is the only
-// implementation r2pipe can have. Both must return the same rows, which the
-// e2e suite checks row by row across the two backends. `blocks`/`cfg_edges`/
-// `switch_tables`/`dominators`/`post_dominators`/`loops` all share the
-// identical `aflj` + N×`afbj` full scan today; each is ported independently,
-// reading the same `direct::BlockData` shape `direct.hpp` defines once for
-// all six.
 
 #include <memory>
 #include <unordered_set>

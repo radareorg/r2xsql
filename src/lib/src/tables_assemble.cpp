@@ -59,13 +59,6 @@
 // it as) would make this table's results depend on unrelated session
 // history.
 //
-// No C-API producer on either table: an `assemble` call is a single
-// assemble operation (no N-per-row cost to collapse), and `search_asm`'s
-// cost is dominated by radare2's OWN search algorithm, not by anything this
-// table's own command-vs-API choice could change -- the same
-// "one full-scan-equivalent command, no per-row shape" reasoning
-// `bininfo`/`rop_gadgets` already documented for themselves. Command-path
-// only, identical on both backends.
 
 #include <cstdint>
 #include <cstdlib>
@@ -190,13 +183,6 @@ std::vector<SearchAsmRow> run_search_asm(Backend* be, const std::string& asm_tex
   size_t pos = 0;
   while (pos <= text.size()) {
     size_t nl = text.find('\n', pos);
-    // Trim trailing '\r' (and any other whitespace) before parsing: the
-    // r2pipe backend spawns radare2 as a subprocess and its captured stdout
-    // can carry "\r\n" line endings even though the in-process libr backend's
-    // r_cons output never does -- a trailing '\r' left on `hex_tok` would
-    // fail json_utils::valid_hex_bytes for every single line (verified live:
-    // this table returned 0 rows on r2pipe vs 11 on libr for the identical
-    // search until this trim was added).
     const std::string line = table_utils::trim_ascii(
         text.substr(pos, nl == std::string::npos ? std::string::npos : nl - pos));
     SearchAsmRow row;

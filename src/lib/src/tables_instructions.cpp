@@ -17,24 +17,6 @@
 // know which function (if any) owns the addresses it walks, so `func_addr`
 // is always 0 on rows this pushdown produces.
 //
-// A THIRD axis, orthogonal to which of the two shapes above ran: PROJECTION
-// GATING. This table conflates two kinds of column — REPORTED DATA (`addr`,
-// `size`, `bytes`, `func_addr`, `esil`, `op_type`, `family`, plus the
-// client-computed `seq`/`canonical_op`) and RENDERED TEXT (`disasm`, and
-// `mnemonic` derived from it — radare2's own disassembly renderer, no
-// exported C-API entry point). Whenever a query's projection does NOT read
-// `disasm`/`mnemonic`, every producer below (full scan, `func_addr`
-// pushdown, `start_addr`/`count` pushdown) uses a fast C-API leg instead
-// (`direct::Api::instructions_scan`/`instructions_in_func`/
-// `instructions_range`, `direct_libr.cpp`) — measured at 3.97-8.11x with
-// exact field parity on every reported-data column in a private standalone
-// benchmark before this port was built. A query that DOES read either
-// rendered-text column always falls back to the unchanged command path
-// below, on every producer shape, so `disasm`/`mnemonic` stay exactly what
-// radare2's own renderer produces — never approximated. The pipe backend
-// has no C-API leg at all
-// (`Backend::direct()` is null there), so it always uses the command path
-// regardless of projection — unaffected by this gate.
 
 #include <cstdint>
 
@@ -162,12 +144,6 @@ constexpr uint64_t kColUsedAll    = 1ull << 63;
 constexpr uint64_t kMnemonicColBit = 1ull << 2;
 constexpr uint64_t kDisasmColBit   = 1ull << 3;
 
-// True whenever the query's projection could read RENDERED TEXT
-// (`mnemonic`/`disasm` — see the file header). Every producer below stays on
-// the unchanged command path whenever this is true, so rendered text is
-// always exactly what radare2's own renderer produces; only when false, AND
-// a C-API leg is available (`Backend::direct()` non-null — never true for
-// the pipe backend), does a producer switch to the fast leg.
 bool needs_render(uint64_t col_used) {
   return (col_used & kColUsedAll) || (col_used & kMnemonicColBit) ||
          (col_used & kDisasmColBit);
@@ -322,10 +298,6 @@ class InsnsInFuncIterator : public xsql::RowIterator {
 void register_instructions_table(Session& s) {
   auto def = xsql::generator_table<InsnRow>("instructions")
     .estimate_rows([]() -> size_t { return 100000; })
-    // Full scan: projection-gated between the command path (InsnsGen, lazy)
-    // and the C-API leg (InsnsVecGen over instructions_scan) — see the file
-    // header. The pipe backend's Backend::direct() is always null, so it
-    // always takes the command-path branch regardless of colUsed.
     .projection_generator([be = s.backend_ptr()](uint64_t col_used)
         -> std::unique_ptr<xsql::Generator<InsnRow>> {
       if (!needs_render(col_used)) {

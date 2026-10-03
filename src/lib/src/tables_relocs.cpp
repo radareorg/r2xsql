@@ -3,7 +3,6 @@
 //
 // This file is licensed under the Human-Origin Source License v1.0.
 // See LICENSE.
-// Relocations from RBin, with a command fallback for r2pipe and mock.
 
 #include <r2xsql/session.hpp>
 #include <r2xsql/backend.hpp>

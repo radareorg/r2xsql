@@ -18,19 +18,6 @@
 // name/realname/size/comment/alias/addr and nothing else). So the space has to
 // be established by enumerating flagspaces and listing each one.
 //
-// A full scan is that same enumeration: one `fj` (full dump) + one
-// `fs <name>; fj; fs *` PER FLAGSPACE to attribute the real space back onto
-// each flag by name. On the libr backend this reads `r_flag_foreach` directly
-// instead — measured at 17-47x on a full scan across a real
-// binary, this project's own scale fixtures, and a real large DLL, with exact
-// field parity (including a pointer-equality quirk in radare2's own
-// `realname` field), before being ported (see `direct.hpp` for why the second
-// producer lives in another TU). `r_flag_foreach` needs no `fs` selection or
-// session-state save/restore at all — it is not scoped by the
-// currently-selected flagspace the way the `fj` COMMAND is — so the port also
-// deletes the enumeration loop's own atomic-select/list/restore workaround
-// entirely on the ported leg. The command path remains the only
-// implementation r2pipe can have.
 //
 // Writes (INSERT's `f`, DELETE's `f-`, and the rename's `fr`) dispatch through
 // Backend::cmd_noeval on the in-process (libr) backend — the same structural
@@ -60,18 +47,6 @@
 // to be) would still need a genuine addr-less primitive; that remains
 // unbuilt and is not needed here.
 //
-// The rename is ALSO now C-API-backed on the libr flavor, a separate, later
-// port from the cmd_noeval rollout above: a benchmark
-// measured a bulk workload (N up to 500 repeated renames, simulating a
-// bulk-rename script) at 48-62x over the CMD leg (the SAME
-// `r_core_call_str_at("fr ...")` dispatch this table already issues), with
-// exact parity — `fr`'s own handler (`cmd_flag.inc.c`) was read and found to
-// be nothing more than the same `r_flag_get` (by name) + `r_flag_rename` the
-// API leg calls directly, unlike `funcs.name`'s `afn` (see that table's
-// comment for why THAT rename was refused). The C-API leg needs no address
-// at all — see `Api::flag_rename` in `direct.hpp`. On every non-libr backend
-// (r2pipe, mock), `Backend::direct()` returns nullptr and the exact `fr`
-// dispatch above runs unchanged.
 
 #include <r2xsql/session.hpp>
 #include <r2xsql/backend.hpp>
@@ -93,12 +68,6 @@ namespace r2xsql {
 namespace {
 using direct::FlagRow;
 
-// Dispatch a write command scoped to `addr`. Tries the structural no-eval
-// path first (libr backend only, via Backend::cmd_noeval); falls back to the
-// original command-string form (`command @ addr`) on every backend that
-// reports it unsupported, so r2pipe's behavior and command text stay
-// byte-for-byte unchanged. Same helper shape as the `comments`/`funcs`
-// tables' pilot of this dispatch.
 std::string dispatch_write(Backend* be, int64_t addr, const std::string& command) {
   std::string out;
   if (be->cmd_noeval(addr, command, &out)) return out;
@@ -211,13 +180,6 @@ void register_flags_table(Session& s) {
           r.name = v;
           return true;
         }
-        // Fallback (r2pipe, mock): `fr` takes no address at all (see the file
-        // header for the full reasoning) — dispatch it through cmd_noeval
-        // anyway, seeked to this row's own `r.addr`, which the command never
-        // consults; a plain Backend::cmd_noeval-unsupported backend (r2pipe,
-        // mock) falls back to the exact same bare `fr <old> <new>` string
-        // this table has always issued, with no `@ <addr>` ever spliced onto
-        // it.
         std::string cmd = std::string("fr ") + r.name + " " + v;
         std::string out;
         if (!be->cmd_noeval(r.addr, cmd, &out)) {

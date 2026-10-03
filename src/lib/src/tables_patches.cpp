@@ -115,14 +115,6 @@ namespace r2xsql {
 
 namespace {
 
-// Dispatch a write command scoped to `addr`. Tries the structural no-eval
-// path first (libr backend only, via Backend::cmd_noeval); falls back to the
-// original command-string form (`command @ addr`) on every backend that
-// reports it unsupported, so r2pipe's behavior and command text stay
-// byte-for-byte unchanged. Same helper shape as the `comments`/`funcs`/
-// `flags`/`bookmarks` tables' rollout of this dispatch. Only INSERT's `wx`
-// uses this -- `wci`/`wcu` are fixed literals with no address and nothing to
-// dispatch differently (see the file header).
 std::string dispatch_write(Backend* be, int64_t addr, const std::string& command) {
   std::string out;
   if (be->cmd_noeval(addr, command, &out)) return out;

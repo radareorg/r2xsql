@@ -6,9 +6,8 @@
 //
 // backend.hpp — abstract interface for talking to a radare2 session.
 //
-// Three implementations:
+// Implementations:
 //   - LibrBackend   : in-process via libr (r_core_new / r_core_cmd_str)
-//   - R2PipeBackend : spawns radare2.exe -q0 and pipes commands over stdio
 //   - MockBackend   : canned command -> response map (in-memory, no radare2)
 
 #pragma once
@@ -50,15 +49,10 @@ public:
   // is added; otherwise true.)
   virtual bool alive() const = 0;
 
-  // Human-readable backend name for diagnostics ("libr", "r2pipe", "mock").
+  // Human-readable backend name for diagnostics ("libr", "mock").
   virtual std::string_view name() const = 0;
 
-  // Direct C-API row producers, for the tables where reading libr's state
-  // in-process measured far cheaper than command + JSON. Returns nullptr on
-  // every backend with no in-process radare2 to read — r2pipe talks to a
-  // separate process, mock has no radare2 at all — and those keep the command
-  // path, which is never removed. A table that has been ported checks this once
-  // and falls back on null; a table that has not been ported ignores it.
+  // Native table operations. MockBackend uses the command fallbacks.
   virtual direct::Api* direct() { return nullptr; }
 
   // Structural no-eval command dispatch, for write paths on the in-process
@@ -76,8 +70,7 @@ public:
   // instead of splicing `@ <addr>` into the string.
   //
   // Returns false and leaves `out` untouched when this backend cannot dispatch
-  // this way (every backend but libr: r2pipe talks to a separate process with
-  // no in-process command handler to call into; mock has no radare2 at all) —
+  // this way (MockBackend has no live radare2) —
   // the caller must then fall back to its existing cmd()-based path unchanged.
   // Returns true and fills `out` with the command's textual output otherwise;
   // that output is checked for an error exactly like cmd()'s is (a `true`
@@ -99,33 +92,20 @@ struct LibrOpenOptions {
   bool write   = false;   // open in -w mode; on close, saves the project if `project` is set
 };
 
-// Returns nullptr if r2xsql was built without libr support (R2XSQL_HAVE_LIBR=0)
-// or if the open fails. *err is populated on failure.
+// Returns nullptr if opening fails; *err is populated on failure.
 std::unique_ptr<Backend> open_libr(const LibrOpenOptions& opts, BackendError* err = nullptr);
 
 // Wrap an existing radare2 core (an `RCore*`, passed as `void*` so this public
 // header stays free of <r_core.h>) in a Backend WITHOUT taking ownership: the
 // returned Backend never frees the core. This is the in-process entry used by
 // the core_r2xsql plugin to share the host's RCore. The caller retains ownership
-// and must keep the core alive for the Backend's lifetime. Returns nullptr in a
-// pipe-only build (R2XSQL_HAVE_LIBR=0).
+// and must keep the core alive for the Backend's lifetime.
 //
 // (Declared with C++ linkage and resolved at link time by its sole caller — no
 // `extern "C"` is needed since both the definition and the caller are C++ TUs
 // in this project; using C linkage here would be the C4190 "C-incompatible
 // return type" warning, as `std::unique_ptr` is not a C type.)
 std::unique_ptr<Backend> make_libr_backend_from_core(void* core_ptr);
-
-struct R2PipeOpenOptions {
-  std::string r2_executable;  // path to radare2(.exe); searched on PATH if empty
-  std::string path;           // binary to open; if empty, opens with --
-  std::string project;        // r2 project name; managed after startup with Pl/P/Ps
-  bool analyze = true;
-  bool write   = false;
-  std::vector<std::string> extra_args;  // appended after -q0
-};
-
-std::unique_ptr<Backend> open_r2pipe(const R2PipeOpenOptions& opts, BackendError* err = nullptr);
 
 // MockBackend is constructible directly (see backend_mock.hpp).
 
@@ -142,9 +122,7 @@ std::unique_ptr<Backend> open_r2pipe(const R2PipeOpenOptions& opts, BackendError
 // of "Cannot find ...sdb" errors).
 //
 // This probe reports the directory r2 will look in and whether it exists, so
-// callers can detect the misdeployment. In a pipe-only build the
-// data dir is resolved by the spawned radare2.exe instead, so `found` is true
-// and `probe_path` is empty (not applicable).
+// callers can detect the misdeployment.
 struct LibrDataDirStatus {
   std::string probe_path;  // the share/fcnsign directory r2 will probe
   bool found = true;       // false => r2xsql is not deployed next to radare2.exe

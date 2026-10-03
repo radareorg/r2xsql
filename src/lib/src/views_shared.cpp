@@ -24,16 +24,6 @@
 //      the most interesting ones. So an edge here is one landing on a function
 //      *or* an import, expressed as joins that also supply the callee's name.
 //
-//   2. `from_func IS NOT NULL` is not cosmetic here, it is what makes these
-//      views give one answer. radare2 has two ways to enumerate references and
-//      they do not agree: the per-function walk behind a full scan cannot see a
-//      reference whose source lies outside every analyzed function, while the
-//      scoped `axtj` lookup behind the `to_addr` pushdown can. On that binary that
-//      is a real 38-vs-34 split on the same logical question, on BOTH backends
-//      (so it is radare2's semantics, not ours). Every such row has a NULL
-//      `from_func` — it belongs to no function by definition — so filtering
-//      them out makes these views return the same rows whichever plan SQLite
-//      picks. Removing the filter would reintroduce a plan-dependent answer.
 
 #include <r2xsql/session.hpp>
 #include <xsql/database.hpp>

@@ -6,18 +6,6 @@
 // funcs — function inventory via `aflj`. Each row is one analysed function;
 // the JSON is re-issued per query so the view is always live.
 //
-// Writes (`name` rename via `afn`, `prototype` via `afs`, `calltype` via
-// `afc`, DELETE via `af-`, INSERT's `af`/`afn`) are all address-scoped, so on
-// the in-process (libr) backend each dispatches through Backend::cmd_noeval —
-// radare2's own command handler, seeked to the target address, called
-// directly without evaluating its command-chaining grammar (`;`/`@`/`|`/
-// backtick) at all. This is an ADDITIONAL layer alongside this table's
-// existing grammar/value validation (`r_name_check`, `valid_c_signature`,
-// the `calling_convention_exists` check on `calltype`) — none replaces the
-// others. On every other backend (r2pipe, mock) cmd_noeval reports
-// unsupported and the exact same `cmd()` + spliced `@ <addr>` string this
-// table always issued runs unchanged. Same shape as the `comments` table's
-// pilot of this dispatch.
 //
 // `name`'s rename is explicitly REFUSED a C-API port, unlike the sibling
 // rename/set writes on `comments`/`flags`/`locals` (measured together). Not a speed question — `afn`'s bulk-rename
@@ -257,12 +245,6 @@ bool calltype_readback_matches(
   return func && json_utils::str(*func, "calltype") == expected;
 }
 
-// Dispatch a write command scoped to `addr`. Tries the structural no-eval
-// path first (libr backend only, via Backend::cmd_noeval); falls back to the
-// original command-string form (`command @ addr`) on every backend that
-// reports it unsupported, so r2pipe's behavior and command text stay
-// byte-for-byte unchanged. Same helper shape as the `comments` table's pilot
-// of this dispatch.
 std::string dispatch_write(Backend* be, int64_t addr, const std::string& command) {
   std::string out;
   if (be->cmd_noeval(addr, command, &out)) return out;

@@ -8,16 +8,6 @@
 // `afbj @ X`. An unfiltered scan walks `aflj` and enumerates every function's
 // blocks lazily.
 //
-// A second, faster producer reads libr's analysis state through the C API
-// instead of running the command and parsing its JSON (see `direct.hpp`).
-// The command path below is NOT a legacy leftover: it is the only
-// implementation r2pipe can have, since that backend drives a separate
-// radare2 process. Both must return the same rows, which the e2e suite
-// checks row by row across the two backends. `blocks`/`cfg_edges`/
-// `switch_tables`/`dominators`/`post_dominators`/`loops` all share the
-// identical `aflj` + N×`afbj` full scan today; each is ported independently
-// here, reading the same `direct::BlockData` shape `direct.hpp` defines once
-// for all six.
 
 #include <memory>
 #include <utility>
@@ -65,11 +55,6 @@ std::vector<BlockRow> blocks_for_func(Backend* be, int64_t fa) {
   return out;
 }
 
-// Full-scan: on the direct backend, one `blocks_scan()` call replaces the
-// `aflj` + N×`afbj @` round-trips entirely; on the command backend it is
-// exactly the original lazy `aflj` then `afbj @` per function, streamed one
-// block at a time — UNCHANGED from before this port, since r2pipe has no C
-// API and must keep paying for each command as it goes.
 class BlocksGen : public xsql::Generator<BlockRow> {
   Backend* be_;
   bool use_api_ = false;

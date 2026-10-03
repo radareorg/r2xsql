@@ -6,14 +6,6 @@
 // xrefs — per-function enumeration via `afxj @ <fn>` for full scans, with
 // scoped `axtj @ <addr>` / `axfj @ <addr>` pushdown for point lookups.
 //
-// All three shapes have a second, faster producer that reads libr's analysis
-// state through the C API instead of running the command and parsing its JSON
-// (see `direct.hpp` for why that lives in another TU, and what it costs not to).
-// The command path below is NOT a legacy leftover: it is the only
-// implementation r2pipe can have, since that backend drives a separate radare2
-// process. Each shape picks the direct producer when the backend offers one and
-// runs the command otherwise; both must return the same rows, which the e2e
-// suite checks row by row across the two backends.
 
 #include <r2xsql/session.hpp>
 #include <r2xsql/backend.hpp>

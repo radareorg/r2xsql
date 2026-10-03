@@ -12,29 +12,6 @@
 //   tuj N union definition  (same shape as tsj)
 //   tej N enum  definition  (name, values{key:int, ...})
 //
-// One row per type. Columns:
-//   ordinal   INT64 — 0-based position of this row in the type set, in the
-//                     SAME name-sorted order the row walk below already
-//                     produces (a free running counter over the existing
-//                     scan -- no extra command, no extra cost). NOT a
-//                     persistent per-type identity: this table has
-//                     .no_shared_cache() (the type database is mutable), so
-//                     the row set -- and therefore every ordinal from the
-//                     matched row onward -- is recomputed from scratch on
-//                     every query. Two queries in the same session agree on
-//                     a given name's ordinal ONLY while the type set is
-//                     unchanged; an intervening INSERT/DELETE (or
-//                     `td`) shifts the alphabetical position
-//                     of every name that sorts after the change. Never
-//                     derived from any address. Both backends share this
-//                     exact producer (no direct::/C-API path exists for
-//                     `types` -- see the "Resolved -- won't build" record),
-//                     so pipe and full assign identical ordinals for
-//                     identical type sets structurally, not by coincidence.
-//   name      TEXT  — fully qualified type name
-//   kind      TEXT  — atomic | struct | union | enum | typedef | func | type
-//   size      INT64 — byte size (-1 for unsized/opaque/pointer-like)
-//   format    TEXT  — pf-style format string (atomics/structs/unions); empty otherwise
 //
 // Both writes here (`td` for INSERT, `t-` for DELETE) dispatch through
 // Backend::cmd_noeval on the in-process (libr) backend -- the fifth
@@ -153,11 +130,6 @@ void register_types_table(Session& s) {
         xsql::set_vtab_error("types: refusing to delete an unsafe/empty type name");
         return false;
       }
-      // `t-` has no address in its own grammar at all (see the file header);
-      // dispatch_type_write seeks Backend::cmd_noeval to the fixed
-      // kTypeSystemAnchorAddr instead of a per-row address, falling back to
-      // this exact same "t- <name>" string, byte-for-byte, on every backend
-      // that reports the primitive unsupported (r2pipe, mock).
       const std::string cmd = "t- " + r.name;
       if (std::string e = table_utils::command_error_text(
               table_utils::dispatch_type_write(be, cmd));

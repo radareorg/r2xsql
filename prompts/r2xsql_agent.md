@@ -195,11 +195,12 @@ interface; commands act on the host session.
 
 | Backend | Use |
 |---------|-----|
-| **r2pipe** | C++ consumers call `open_r2pipe` to spawn and manage `radare2 -q0`. |
 | **libr** | C++ consumers call `open_libr`; the plugin wraps the host core. Requires a matching radare2 build. |
 | **mock** | Embedding/testing with canned command responses and no live radare2. |
 
-The SQL table descriptions below apply to both live library backends.
+The plugin uses the host RCore. The former internal r2pipe backend served the
+removed standalone CLI and servers. External r2pipe clients can still issue
+`sql` commands to a radare2 process with the plugin loaded.
 
 ---
 
@@ -246,19 +247,14 @@ a single entry and exit — the unit of control-flow analysis.
 `post_dominators`/`loops` straight from radare2's in-process analysis state**
 (`fcn->bbs`) instead of running `afbj @ X` and parsing its JSON — all six share
 the same underlying block list, so this is one port that speeds up all six at
-once, an unfiltered scan going from one command per function to none. The
-r2pipe backend drives a separate radare2 process, so it uses the `afbj @ X`
-commands described below on both the full scan and the `func_addr` pushdown.
-`switch_tables.table_addr` stays NULL on both flavors: the C API has the jump
-table's own address, but no radare2 command exposes it, so surfacing it only
-in-process would make the two flavors disagree on that column for the same
-query.
+once, an unfiltered scan going from one command per function to none.
+`switch_tables.table_addr` remains NULL for compatibility with the SQL schema.
 
 ### Control-flow edges
 `cfg_edges` is the intra-function control-flow graph: one row per edge between two
 basic blocks — `func_addr`, `from_addr`, `to_addr` (source/target block start
 addresses), and `edge_type` (`normal`, `true`, `false`). Always filter by
-`func_addr` (pushdown → `afbj @ X` on the pipe-only flavor). Branch points are
+`func_addr`. Branch points are
 blocks with >1 successor; find them with `SELECT from_addr, COUNT(*) FROM
 cfg_edges WHERE func_addr = X GROUP BY from_addr HAVING COUNT(*) > 1`.
 
@@ -267,8 +263,7 @@ Canonical cross-tool CFG-graph tables (aligned with ghidrasql). Each maps a
 function's basic blocks onto opaque node ids and runs the generic
 `xsql::graph` module — pure r2xsql code, not a radare2 dominance API, so the
 in-process speedup above comes entirely from how the block list itself is
-read. Always filter by `func_addr` (pushdown → `afbj @ X` on the pipe-only
-flavor).
+read. Always filter by `func_addr`.
 
 | Table | Columns |
 |-------|---------|
@@ -348,11 +343,8 @@ from the section/segment maps (omitted when unmapped). `bits` doubles as the
 canonical bits key. No `md5`/`sha256` (best-effort core; radare2 hashing is
 unreliable).
 
-`radare2_version` is the running radare2 ENGINE's own version (from `?Vj`),
-distinct from `r2xsql_version`/`tool_version` above — on the r2pipe flavor
-the engine actually running is whatever `radare2` binary is on `PATH` at
-runtime, which can differ from what r2xsql itself was built against, so
-this is the only reliable source for "which radare2 is this."
+`radare2_version` is the running radare2 engine version, distinct from
+`r2xsql_version`/`tool_version`.
 
 ```sql
 -- everything at a glance
@@ -480,10 +472,9 @@ address-scoped,
 so on the in-process backend each one dispatches through a structural
 command-dispatch path that never evaluates r2's own command separators at all
 — a second, independent layer beneath the name/signature validation above (the
-same mechanism `comments` writes already use). The pipe backend is unaffected:
-it always uses the plain command form.
+same mechanism `comments` writes already use).
 
-`name`'s rename stays on that command path (`afn`) on **both** flavors —
+`name`'s rename stays on that command path (`afn`) —
 deliberately not ported to a direct C-API call, unlike `flags`/`locals`
 (below). `afn`'s command handler also renames the function's backing flag and
 its stored signature metadata, side effects the raw C-API rename function
@@ -556,18 +547,9 @@ split `funcs.prototype` documents against `funcs`'s other columns — and is
 redundant with the structured `args`/`ret`/`rets`/`argn` fields above.
 
 #### `locals` (writable)
-Source per-function `afvj @ <func_addr>` on the pipe-only flavor; the libr backend
-reads `fcn->vars` directly instead of running that command — identical rows,
-one command per function replaced by none on a full scan. One row per local
-variable/argument, keyed on `(func_addr, name)`. Both `name` and `type` are
-writable on both flavors: the libr backend calls `r_anal_var_rename`/
-`r_anal_var_set_type` directly (measured 78-150x over `afvn`/`afvt` on a bulk
-rename/retype workload, exact parity); the pipe-only flavor still issues
-`afvn`/`afvt`. On the in-process (libr) flavor, whenever that C-API leg is
-unavailable, the command-path fallback (also the pipe-only flavor's only
-path) dispatches `afvn`/`afvt` through the same structural no-eval command
-path every other address-scoped write uses — see "Structural no-eval
-dispatch" below.
+Reads `fcn->vars` directly, with one row per local variable/argument keyed on
+`(func_addr, name)`. Both `name` and `type` are writable through
+`r_anal_var_rename` and `r_anal_var_set_type`.
 
 | Column        | Type  | Notes                                          |
 |---------------|-------|------------------------------------------------|
@@ -592,7 +574,7 @@ Locals are analysis-derived — no INSERT/DELETE. r2 reflects a rename/retype
 immediately, so the next read returns the new value.
 
 #### `blocks` (read-only)
-Source per-function `afbj @ <addr>` on the pipe-only flavor; the libr backend
+The libr backend
 reads `fcn->bbs` directly (see "Basic blocks" above). Filter by `func_addr`.
 
 | Column      | Type  | Notes                |
@@ -628,9 +610,7 @@ path (`pdfj`/`pdj`, same as always). Every other column (`addr`, `size`,
 of `disasm`/`mnemonic` reads it straight from radare2's analysis state
 instead — measured 4-9x faster end to end, with exact field parity, on every
 one of this table's three shapes (full scan, `func_addr` pushdown,
-`start_addr`/`count` pushdown). This applies to the libr backend only — the
-r2pipe backend connection always uses the command path, since it spawns
-a separate radare2 process with no in-process state to read. In practice:
+`start_addr`/`count` pushdown). In practice:
 `SELECT addr, op_type, esil FROM instructions WHERE func_addr = X` is the
 fast shape; adding `disasm` or `mnemonic` to that same query switches it back
 to the command path — not a bug, and not something to avoid when you
@@ -735,7 +715,7 @@ WHERE o.func_addr = 0x401000 ORDER BY o.seq, p.operand_index;
 ```
 
 #### `sections` / `segments` (read-only)
-Source `iSj` / `iSSj` on the pipe-only flavor; the libr backend reads
+The libr backend reads
 `RBinSection` directly instead (see "Sections vs segments vs io_maps" above).
 
 | Column  | Type  | Notes                          |
@@ -828,8 +808,7 @@ independent layer beneath the hex-charset validation above (which, on its
 own, already keeps this argument free of every r2 command metacharacter).
 `wci`/`wcu` (the UPDATE/DELETE primitives above) are fixed commands with no
 user-controlled text in them at all — nothing to dispatch differently — so
-they stay on the plain command path, unchanged. The pipe backend is
-unaffected on all three writes.
+they stay on the plain command path.
 
 #### `bytes` (writable: UPDATE only — direct byte overwrite)
 Source `omj`/`p8`/`iSj` for reads (see *Raw bytes* above); `value` is writable
@@ -865,11 +844,11 @@ this table. No INSERT or DELETE: a byte can't be created or removed, only
 changed. `addr`/`is_initialized` stay read-only.
 
 #### `strings` (read-only)
-Source `izj` on the pipe-only flavor; the libr backend reads `r_bin_get_strings`
+The libr backend reads `r_bin_get_strings`
 directly instead — identical rows (that command handler already calls the
 same function internally). (The `content` column is skipped at build time
 when you don't select it — so `COUNT(*)` / length histograms over `strings`
-are cheap on both flavors.)
+are cheap.)
 
 | Column    | Type  | Notes                              |
 |-----------|-------|------------------------------------|
@@ -912,7 +891,7 @@ FROM data_items ORDER BY is_string DESC, size DESC LIMIT 20;
 ```
 
 #### `imports` (read-only)
-Source `iij` on the pipe-only flavor; the libr backend reads `RBinImport`
+The libr backend reads `RBinImport`
 directly instead (via the same `r_bin_name_tostring`/`r_bin_demangle`/
 `r_core_bin_impaddr` helpers the command emitter itself calls) — identical
 rows, no command dispatch.
@@ -941,10 +920,10 @@ WHERE name LIKE 'Crypt%' OR name LIKE 'BCrypt%'
 
 #### `entries` (read-only)
 Sources `iej` (program entry points) plus `iEj` (exports), deduplicated by address,
-on the pipe-only flavor; the libr backend reads `RBinAddr`/`RBinSymbol` directly
+in radare2; the libr backend reads `RBinAddr`/`RBinSymbol` directly
 instead and merges them the same way — identical rows. Executables normally
 have at least their loader entry point even when they export no symbols. Note
-`entries.name` is the ORIGINAL symbol name, never demangled, on either flavor.
+`entries.name` is the ORIGINAL symbol name, never demangled, in the SQL output.
 
 | Column | Type  | Notes               |
 |--------|-------|---------------------|
@@ -968,12 +947,7 @@ across every function.
 **The libr backend reads this table straight from radare2's in-process analysis
 state instead of running those commands** — same rows, roughly an order of
 magnitude faster on a large binary, where an unfiltered scan would otherwise be
-one command per function. The r2pipe backend drives a separate radare2
-process, so it uses the commands above. (`funcs`, `byte_search`, `locals`,
-`flags`, the `blocks`/`cfg_edges`/`switch_tables`/`dominators`/
-`post_dominators`/`loops` cluster, and `strings`/`sections`/`segments`/
-`imports`/`entries` use the same in-process path; every other table runs
-commands on both flavors.)
+one command per function.
 
 | Column      | Type  | Notes                                  |
 |-------------|-------|----------------------------------------|
@@ -1342,7 +1316,7 @@ is a plain validated integer with no free-text argument anywhere on this
 table's surface, so there is no charset-allowlist injection surface to
 defend (unlike `assemble`/`demangle`); `Backend::cmd_noeval` is still wired
 in for defense-in-depth and consistency with every other address-scoped
-read on the libr backend. Command-path only, identical on both backends (one
+read on the libr backend. Uses radare2's command handler (one
 full-scan-equivalent command, no C-API producer needed).
 
 ### Exploitation
@@ -1523,7 +1497,7 @@ table's commands, which are anchored on a real row address. On the in-process
 address, since neither command ever consults the current seek. This is the
 same additional, structural layer every other writable table's commands get
 — on top of, never instead of, the existing name/declaration validation
-below; the pipe backend is unaffected.
+below.
 
 ```sql
 SELECT name, kind, size FROM types WHERE kind = 'struct' ORDER BY size DESC LIMIT 20;
@@ -1537,7 +1511,7 @@ At the radare2 prompt:
 ```
 
 The full type set (e.g. the thousands of Windows API typedefs) lives in
-radare2's `share/fcnsign/types-*.sdb`. The **r2pipe** backend always loads it.
+radare2's `share/fcnsign/types-*.sdb`.
 The plugin uses the host radare2 installation's data directory. Embedding
 applications using the **libr** backend must also provide a complete radare2
 installation; otherwise `types` can collapse to a few built-ins.
@@ -1636,7 +1610,7 @@ WHERE name NOT LIKE 'std::%' AND name <> 'type_info';
   classes with `Dog`→`Animal` and `Bird`→`Animal` base links and 3 methods
   each; Itanium/ELF gives only **2 classes** (the abstract base `Animal` is
   missing), **no `base_name` links at all**, and 4 methods each. This is
-  radare2's `avrr` recovery, not an r2xsql defect — both backends agree with
+  radare2's `avrr` recovery, not an r2xsql defect — the SQL table agrees with
   each other on both platforms. On GCC/Clang targets: **do not rely on
   `base_name` to reconstruct a hierarchy, and do not treat a missing class as
   proof it is absent**; cross-check `vtable_addr` and raw `acllj`. MSVC
@@ -1740,11 +1714,8 @@ SELECT name FROM libs ORDER BY name;
 ### Annotations (writable)
 
 #### `flags` (writable)
-Source `fj` (full dump) + one `fs <space>; fj; fs *` per flagspace on the
-pipe-only flavor, to attribute radare2's real flagspace onto each flag by
-name; the libr backend reads `r_flag_foreach` directly instead — identical rows,
-the per-flagspace enumeration replaced by one pass with no `fs`
-select/restore at all. Named addresses.
+Named addresses read with `r_flag_foreach`, including each flag's actual
+flagspace, without changing the selected flagspace.
 
 | Column     | Type  | Notes                          |
 |------------|-------|--------------------------------|
@@ -1765,14 +1736,10 @@ backend both dispatch through the same structural no-separator-evaluating
 command path `comments`/`funcs` writes already use — a second, independent
 layer beneath the name validation above. `name`'s rename calls radare2's C API
 directly on the libr backend (`r_flag_get` + `r_flag_rename`, no address needed
-at all — measured 48-62x over `fr` on a bulk-rename workload, exact parity);
-the pipe backend still issues `fr` (seeked to the flag's own address, which
-`fr` never consults — a harmless anchor, not an input into the rename).
+at all — measured 48-62x over `fr` on a bulk-rename workload, exact parity).
 
 #### `comments` (writable)
-Source `CCj` on the pipe-only flavor; the libr backend reads radare2's meta
-interval tree directly instead — identical rows (a single full-scan command,
-not a per-function loop, so the win is skipping a json round trip).
+Reads radare2's metadata interval tree directly.
 
 | Column | Type  | Notes                          |
 |--------|-------|--------------------------------|
@@ -1790,13 +1757,7 @@ On the libr backend, `text`'s set/update calls `r_meta_set_string` directly
 (measured 30-40x over `CCu` on a bulk-set workload, exact parity) — including
 reproducing `CCu`'s own dedup quirk: a write whose new text is already a byte
 substring of the EXISTING comment is silently skipped (no-op), matching
-production behavior on both flavors. The pipe backend still sends
-`CCu base64:<b64>`, so spaces, quotes, and `@` are stored verbatim and cannot
-inject extra radare2 commands; on the in-process backend that same
-base64-encoded command path remains the fallback whenever the C-API leg is
-unavailable, additionally dispatched through a structural
-no-separator-evaluating command path so a `;`/`@`/`|`/backtick in the argument
-can never chain into a second command even in principle.
+radare2 behavior.
 
 #### `bookmarks` (writable)
 Flags inside a dedicated `bookmarks` flagspace; every write saves/restores the
@@ -1821,9 +1782,7 @@ independent layer beneath the name validation above and the flagspace
 save/select/restore. `name`'s rename (`fr`) carries no address in its own
 grammar at all (same as `flags`' rename), but still gets the same dispatch:
 seeked to the bookmark's own address first, which `fr` never consults, so
-that seek is a harmless anchor, not an input into the rename. The pipe
-backend is unaffected on all three writes: it always uses the plain command
-form.
+that seek is a harmless anchor, not an input into the rename.
 
 ### Persistence
 
@@ -1923,8 +1882,7 @@ Rules and gotchas:
   with no user-controlled text in them, so there was nothing to harden there
   — left on the plain command path deliberately, not overlooked.
   `bytes.value`'s actual injection defense is its strict 0-255 integer
-  validation, which leaves no free-text argument at all. The pipe backend is
-  unaffected everywhere: it always uses the original command form.
+  validation, which leaves no free-text argument at all.
 
 ```sql
 -- bulk annotate: mark every init-like function for review
