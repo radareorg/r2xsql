@@ -9,11 +9,6 @@
 // `backend_libr.cpp`; the core `r2xsql` library links no radare2 and never
 // sees this TU.
 //
-// The contract each producer must honour is stricter than "return the same
-// rows": it must return what the corresponding radare2 COMMAND would have
-// printed, quirks included, because both backends answer the same SQL and the
-// e2e suite compares their rows. Each producer below therefore names the
-// emitter it mirrors and the specific quirk it reproduces.
 
 #include "direct.hpp"
 #include <nlohmann/json.hpp>
@@ -50,21 +45,10 @@ std::string ref_type_string(RAnalRefType type) {
   return s ? s : "";
 }
 
-// `axtj` is the exception: it guards the field with `if (ref->type)`, so a
-// zero-typed ref has NO "type" key and our JSON reader yields "". Reproduce the
-// absence rather than printing "NULL", or the two backends disagree on a row
-// that neither of them is wrong about.
 std::string ref_type_string_axtj(RAnalRefType type) {
   return type ? ref_type_string(type) : std::string();
 }
 
-// The function containing `addr`, or none. This is the same call `axtj` makes
-// to fill its `fcn_addr` field. For the from_addr producer it stands in for the
-// command path's `afij @ <addr>`, which filters `core->anal->fcns` by
-// `r_anal_function_contains` and takes the first hit; `r_anal_get_fcn_in` takes
-// the first of `r_anal_get_functions_in`. The two agree whenever one function
-// contains the address, and can only differ where functions overlap — the e2e
-// row-level parity check against r2pipe is what would catch that.
 void set_owner(XrefRow& r, RCore* core, ut64 addr) {
   RAnalFunction* fcn = r_anal_get_fcn_in(core->anal, addr, R_ANAL_FCN_TYPE_NULL);
   if (fcn) {
@@ -890,10 +874,6 @@ class LibrApi : public Api {
     });
   }
 
-  // Formats a base register plus a signed delta as "<base>+0x.." /
-  // "<base>-0x.." -- byte-identical to the command path's
-  // `storage_ref_of`/`compact_type`-adjacent helper in tables_locals.cpp, so
-  // the two backends can never disagree on this string's spelling.
   static std::string base_delta_ref(const char* base, int64_t delta) {
     const std::string b = base ? base : "";
     char buf[48];

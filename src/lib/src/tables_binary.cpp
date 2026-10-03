@@ -7,17 +7,6 @@
 // fact). Columns: (key TEXT, value TEXT, type TEXT), type in {string, hex,
 // bool, int}.
 //
-// Carries the raw bin-info fields from `iIj` (arch, bits, bintype, os, baddr,
-// endian, compiler, lang, ...) plus these r2xsql identity / entry / count keys:
-//   r2xsql_version  — tool version (raw key; tool_version is the canonical dup)
-//   radare2_version — running engine version from r_core_version, or `?Vj`
-//                     over r2pipe; independent of r2xsql's build-time version.
-//   file           — input file path (ij -> core.file)
-//   entry          — program entry vaddr (iej[0].vaddr)
-//   entry_name     — flag/name at the entry (fd @ entry)
-//   func_count / string_count / import_count / section_count / segment_count /
-//   symbol_count   — JSON-array lengths, so they match the corresponding tables
-//   summary        — a one-line synthesized digest
 //
 // Canonical core keys (family-shared names, values aliased from the raw
 // radare2 facts above): tool_name, tool_version, processor (=arch),

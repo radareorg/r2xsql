@@ -53,12 +53,6 @@ struct BookmarkRow {
   std::string name;
 };
 
-// Dispatch a write command scoped to `addr`. Tries the structural no-eval
-// path first (libr backend only, via Backend::cmd_noeval); falls back to the
-// original command-string form (`command @ addr`) on every backend that
-// reports it unsupported, so r2pipe's behavior and command text stay
-// byte-for-byte unchanged. Same helper shape as the `flags`/`funcs` tables'
-// rollout of this dispatch.
 std::string dispatch_write(Backend* be, int64_t addr, const std::string& command) {
   std::string out;
   if (be->cmd_noeval(addr, command, &out)) return out;
@@ -134,12 +128,6 @@ void register_bookmarks_table(Session& s) {
         }
         if (r.name == v) return true;
         BookmarkSpaceScope scope(*be);
-        // `fr` takes no address at all (see the file header for the full
-        // reasoning) — dispatch it through cmd_noeval anyway, seeked to this
-        // row's own `r.addr`, which the command never consults; a plain
-        // Backend::cmd_noeval-unsupported backend (r2pipe, mock) falls back to
-        // the exact same bare `fr <old> <new>` string this table has always
-        // issued, with no `@ <addr>` ever spliced onto it.
         std::string cmd = "fr " + r.name + " " + v;
         std::string out;
         if (!be->cmd_noeval(r.addr, cmd, &out)) {

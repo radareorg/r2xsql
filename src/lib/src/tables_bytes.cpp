@@ -272,22 +272,6 @@ class BytesWindowIterator : public xsql::RowIterator {
   int64_t rowid() const override { return rows_[i_].addr; }
 };
 
-// Dispatch the `wx` write scoped to `addr`. Tries the structural no-eval path
-// first (libr backend only, via Backend::cmd_noeval); falls back to the
-// original command-string form (`wx <hex> @ <addr>`) on every backend that
-// reports it unsupported (r2pipe, mock), so r2pipe's command text stays
-// byte-for-byte what it always was. Same helper shape as every other
-// address-scoped write in this project (comments/funcs/flags/bookmarks/
-// patches). Note this dispatches ONLY the `wx` itself -- the io.cache
-// save/set/restore around it (see write_byte_direct below) is issued as its
-// own plain Backend::cmd() calls, never folded into this one, because
-// cmd_noeval sends `command` straight to `wx`'s own handler WITHOUT
-// evaluating `;` chaining at all (that is the whole point of the primitive)
-// -- so a chained "e io.cache=false; wx ...; e io.cache=true" string could
-// never survive a cmd_noeval call; it would be handed to the `e` handler as
-// one garbled argument. The two concerns (no-eval dispatch of `wx` itself,
-// and atomically bracketing it with the cache toggle) are orthogonal and
-// each gets its own mechanism below.
 std::string dispatch_write(Backend* be, int64_t addr, const std::string& command) {
   std::string out;
   if (be->cmd_noeval(addr, command, &out)) return out;

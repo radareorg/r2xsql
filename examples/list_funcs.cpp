@@ -6,7 +6,7 @@
 //
 // list_funcs.cpp — minimal libr2xsql consumer.
 //
-// Opens a binary (libr backend if available, else r2pipe), lists the
+// Opens a binary through libr and lists the
 // first N functions via SQL. Demonstrates the API a third-party tool
 // would use to embed r2xsql.
 
@@ -33,23 +33,12 @@ int main(int argc, char** argv) {
   const std::string path = argv[1];
   const int limit = (argc >= 3) ? std::atoi(argv[2]) : 20;
 
-  std::unique_ptr<r2xsql::Backend> backend;
-
-  // Prefer libr; fall back to r2pipe if libr isn't linked or fails.
-  r2xsql::LibrOpenOptions libr_opts;
-  libr_opts.path = path;
-  backend = r2xsql::open_libr(libr_opts);
-
+  r2xsql::LibrOpenOptions opts;
+  opts.path = path;
+  r2xsql::BackendError error;
+  auto backend = r2xsql::open_libr(opts, &error);
   if (!backend) {
-    std::fprintf(stderr, "libr backend unavailable, falling back to r2pipe...\n");
-    r2xsql::R2PipeOpenOptions pipe_opts;
-    pipe_opts.path = path;
-    backend = r2xsql::open_r2pipe(pipe_opts);
-  }
-
-  if (!backend) {
-    std::fprintf(stderr, "error: could not open '%s' with any backend\n",
-                 path.c_str());
+    std::fprintf(stderr, "error: %s\n", error.message.c_str());
     return 1;
   }
 

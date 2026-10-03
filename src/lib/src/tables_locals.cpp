@@ -11,48 +11,8 @@
 // to batch: the table is a plain no_shared_cache table (no commit hook — r2xsql
 // declined the libxsql commit hook for exactly this reason).
 //
-// A full scan enumerates functions (`aflj`) and pulls each one's vars
-// (`afvj @ <addr>`). On the libr backend this reads `fcn->vars` directly
-// instead — measured at 50-780x on a full scan across a real
-// binary and generated fixtures, with exact field parity, before being ported
-// (see `direct.hpp` for why the second producer lives in another TU). The
-// command path remains the only implementation r2pipe can have, and it also
-// stays the implementation of the single-function readback used to verify a
-// rename/retype landed (a scoped read, not the wide scan the port targets).
-// The table stays a plain writable cached table (no filter_eq): a filter_eq
-// would disable the positional mutation snapshot that keeps a multi-row
-// UPDATE correct (see query_scoped_uses_mutation_snapshot: it requires
-// filters.empty()).
 //
-// The WRITE side (this table's `name` rename and `type` retype) is ALSO now
-// C-API-backed on the libr flavor, a separate, later port from the read-side
-// scan above: a benchmark measured a bulk workload (N
-// repeated renames/retypes, simulating a bulk-retype script) at 78-150x over
-// the CMD leg. Reading `cmd_anal.inc.c`'s `afvn`/`afvt` handlers found each is
-// nothing more than `r_anal_function_get_var_byname` + `r_anal_var_rename`/
-// `r_anal_var_set_type` — the SAME calls the API leg makes directly, with no
-// other side effect (unlike `funcs.name`'s `afn`, refused for exactly this
-// reason on that table) — so parity is exact, proven live. The
-// single-function readback (`local_readback_matches`, below) stays
-// command-based on BOTH legs, same as `funcs`'/`flags`' own per-write
-// readbacks — this port only moves the WRITE call itself. On every non-libr
-// backend (r2pipe, mock), `Backend::direct()` returns nullptr and the command
-// path below runs.
 //
-// That command-path fallback (the `else` leg when `Backend::direct()` is
-// null — the pipe backend's only implementation, and the libr backend's
-// fallback whenever the C-API leg above is unavailable) now ALSO dispatches
-// through `Backend::cmd_noeval` on the in-process (libr) backend, closing a
-// gap this table was the last one to carry: both `afvn` (rename) and `afvt`
-// (retype) are address-scoped exactly like `funcs`'s writes (same
-// `<cmd> <args> @ <addr>` shape), so they use the identical
-// `dispatch_write(be, addr, command)` helper every sibling write-capable
-// table (`comments`, `funcs`, `flags`, `bookmarks`, `types`, `patches`)
-// already uses. This is an ADDITIONAL layer alongside this table's existing
-// grammar validation (`r_name_check`/`valid_type_text`), never a
-// replacement for it. On the r2pipe backend, `cmd_noeval` reports unsupported
-// and the exact `afvn`/`afvt` command text this table always issued runs
-// unchanged.
 
 #include <cctype>
 #include <string>
@@ -142,12 +102,6 @@ std::string compact_type(std::string_view type) {
   return out;
 }
 
-// Dispatch a write command scoped to `addr`. Tries the structural no-eval
-// path first (libr backend only, via Backend::cmd_noeval); falls back to the
-// original command-string form (`command @ addr`) on every backend that
-// reports it unsupported, so r2pipe's behavior and command text stay
-// byte-for-byte unchanged. Same helper shape as the `comments`/`funcs`/
-// `flags`/`bookmarks`/`types`/`patches` tables' rollout of this dispatch.
 std::string dispatch_write(Backend* be, int64_t addr, const std::string& command) {
   std::string out;
   if (be->cmd_noeval(addr, command, &out)) return out;

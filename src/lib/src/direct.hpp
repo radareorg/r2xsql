@@ -6,28 +6,7 @@
 //
 // direct.hpp — the seam between a table and radare2's C API.
 //
-// WHY A SECOND PRODUCER EXISTS AT ALL. Every table is normally filled by
-// running a radare2 text command and parsing the JSON it prints. For a handful
-// of tables that path was measured to cost two orders of magnitude more than
-// reading the same state through libr directly — an `xrefs` full scan over
-// ~2000 functions is 2001 commands, ~8 MB of JSON DOM and 2001 cross-CRT
-// free()s, and every live table sets `.no_shared_cache()`, so it pays that per
-// query. The C-API producer is strictly ADDITIVE: r2pipe spawns a separate
-// radare2 process and has no C API at all, so the command path remains the only
-// implementation there and the fallback everywhere. It is never deleted.
 //
-// WHY IT IS A SEPARATE HEADER INSTEAD OF AN `#if` INSIDE tables_xrefs.cpp.
-// The core `r2xsql` static library holds all 30 `tables_*.cpp` and deliberately
-// links NO radare2 — that is precisely what keeps the pipe-only binary free of
-// r_*.dll imports. A C-API call cannot be compiled into a table file, because
-// that file is only ever compiled into the library with no radare2 to call.
-// The implementations live in `direct_libr.cpp`, compiled into the
-// `r2xsql_libr` OBJECT library, and reach the table through `Backend::direct()`.
-// That TU boundary is what forces the row struct out of its table's anonymous
-// namespace and into this header: a row struct lives beside its table until the
-// table is ported, and moves here when a second TU has to build it.
-// The demangle method also uses this boundary so arbitrary symbol text reaches
-// RBin directly, without passing through the r2 command parser.
 
 #pragma once
 
@@ -139,13 +118,6 @@ struct SwitchCaseData {
 // live here: each of the four `tables_*.cpp` files and `direct_libr.cpp`
 // build this shape from either leg (command JSON or the C API).
 //
-// NOT here: `RAnalSwitchOp::daddr` (the jump table's own memory address).
-// The C API has it, but no r2 command surfaces it (`afbj`'s JSON never emits
-// it — verified by reading `print_bb` in `cmd_anal.inc.c`), so populating it
-// only on the libr leg would make the two backends disagree on
-// `switch_tables.table_addr` for the same query on the same file. It stays
-// NULL on both backends by design — the same shape as `funcs.realname` never
-// being surfaced above.
 struct BlockData {
   int64_t addr = 0;
   int64_t size = 0;
@@ -215,10 +187,6 @@ struct FuncRow {
   // the command path (they arrive in the same JSON object) and one call each on
   // the C-API path.
   //
-  // NOT here: radare2's `RAnalFunction` also carries a `realname` (the mangled
-  // form), but **no r2 command emits it**. Surfacing it would give the
-  // in-process flavor a column the pipe-only flavor can never fill — a query
-  // that silently returns blanks on one of the two, which is worse than the gap.
   int64_t end_addr   = 0;   // `maxaddr`: past the highest block, NOT addr+size
   int64_t ninstrs    = 0;
   int64_t stackframe = 0;
@@ -726,13 +694,6 @@ class Api {
                              const std::string& type) = 0;
 };
 
-// Defined in `direct_libr.cpp` and called from `backend_libr.cpp`. Both are
-// compiled only into the `r2xsql_libr` OBJECT library, so the core library
-// never references this symbol and a pipe-only build needs no stub for it.
-// `core` is an `RCore*`, passed as void* to keep <r_core.h> out of this header;
-// `core_mutex` is the owning backend's, so a direct read cannot interleave with
-// a command issued on another thread (the in-r2 plugin shares one core between
-// its interactive and concurrent callers).
 std::unique_ptr<Api> make_libr_api(void* core, std::mutex& core_mutex);
 
 }  // namespace r2xsql::direct

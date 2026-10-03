@@ -117,11 +117,6 @@ void hex_decode_partial(std::string_view hex, std::vector<uint8_t>& out);
 // store the quotes literally.
 std::string base64_encode(std::string_view s);
 
-// Parse `tk*` output (sdb format). Each non-empty record is "NAME=KIND".
-// Records may be separated by '\n', "\r\n", or ' ' depending on which r2
-// command path produced them (libr cmd vs r2pipe interactive). Returns the
-// map of top-level type entries (those without '.' in the name) whose kind
-// is one of: atomic, struct, union, enum, typedef, func, type.
 std::unordered_map<std::string, std::string> parse_tk_dump(std::string_view tk);
 
 }  // namespace r2xsql::json_utils

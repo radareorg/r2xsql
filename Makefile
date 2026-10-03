@@ -51,7 +51,6 @@ XSQL_INC=-I$(LIBXSQL_DIR)/include \
 R2XSQL_INC=-I$(CWD)/src/lib/include -I$(CWD)/src/lib/src -I$(CWD)/src
 
 # --- defines ------------------------------------------------------------------
-# R2XSQL_HAVE_LIBR=1  -> compile the in-process libr backend (real, not stub).
 # XSQL_VERSION_STRING -> libxsql's --version string. Derived from libxsql's own
 # CMakeLists at build time, so it follows the libxsql checkout in use (the
 # pinned LIBXSQL_REF when fetched). Override with
@@ -59,7 +58,7 @@ R2XSQL_INC=-I$(CWD)/src/lib/include -I$(CWD)/src/lib/src -I$(CWD)/src
 # (pattern has no '(' on purpose: an unbalanced paren inside $(shell ...) makes
 # GNU make read it as an unterminated call.)
 XSQL_VERSION = $(shell grep -m1 'libxsql VERSION' "$(LIBXSQL_DIR)/CMakeLists.txt" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
-DEFS=-DR2XSQL_HAVE_LIBR=1 -DXSQL_VERSION_STRING=\"$(XSQL_VERSION)\"
+DEFS=-DXSQL_VERSION_STRING=\"$(XSQL_VERSION)\"
 SQLITE_DEFS=-DSQLITE_ENABLE_FTS5 -DSQLITE_ENABLE_RTREE -DSQLITE_ENABLE_JSON1 \
             -DSQLITE_ENABLE_COLUMN_METADATA
 
@@ -71,8 +70,7 @@ PLUGIN=$(BUILD)/core_r2xsql.$(R2_LIBEXT)
 PLUGDIR?=$(R2_LIBR_PLUGINS)
 
 # --- sources ------------------------------------------------------------------
-# All of src/lib/src/*.cpp is the full (libr) plugin set: the 43 core adapters
-# plus backend_libr.cpp + direct_libr.cpp (guarded by R2XSQL_HAVE_LIBR).
+# Compile the SQL tables and native backend into the plugin.
 R2XSQL_SRCS=$(wildcard src/lib/src/*.cpp)
 R2XSQL_OBJS=$(patsubst src/lib/src/%.cpp,$(BUILD)/obj/r2xsql/%.o,$(R2XSQL_SRCS))
 XSQL_SRCS=$(wildcard $(LIBXSQL_DIR)/src/*.cpp)

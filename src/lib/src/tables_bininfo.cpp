@@ -3,7 +3,6 @@
 //
 // This file is licensed under the Human-Origin Source License v1.0.
 // See LICENSE.
-// Binary metadata from the shared native source or the r2pipe fallback.
 
 #include <r2xsql/session.hpp>
 #include <r2xsql/backend.hpp>

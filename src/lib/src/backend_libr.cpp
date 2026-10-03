@@ -3,19 +3,15 @@
 //
 // This file is licensed under the Human-Origin Source License v1.0.
 // See LICENSE.
-// LibrBackend — in-process wrapper around r_core, compiled when
-// R2XSQL_HAVE_LIBR is set. In a pipe-only build (no radare2 at configure time)
-// R2XSQL_HAVE_LIBR is unset and open_libr() returns nullptr.
+// LibrBackend — in-process wrapper around r_core.
 
 #include <r2xsql/backend.hpp>
 
-#if R2XSQL_HAVE_LIBR
-#  include "direct.hpp"
+#include "direct.hpp"
 
-#  include <r_core.h>
-#  include <r_userconf.h>
-#  include <r_util.h>
-#endif
+#include <r_core.h>
+#include <r_userconf.h>
+#include <r_util.h>
 
 #include <cstdio>
 #include <cstdlib>
@@ -25,7 +21,6 @@
 
 namespace r2xsql {
 
-#if R2XSQL_HAVE_LIBR
 
 // Mirror r2's own data-dir resolution (cbin.c builds <r_sys_prefix>/<R2_SDB_FCNSIGN>
 // for the type DB, and separately for the calling-convention/syscall SDBs) so
@@ -226,7 +221,7 @@ class LibrBackend : public Backend {
             "or report a generic fallback value rather than the correct "
             "one.\n"
             "       Run the host application from the radare2 install bin/ directory "
-            "(next to radare2.exe), or use the r2pipe backend.\n",
+            "(next to radare2.exe).\n",
             dd.probe_path.empty() ? "<unknown>" : dd.probe_path.c_str());
       }
     }
@@ -252,8 +247,7 @@ class LibrBackend : public Backend {
       // reference scanning, so an in-process `aaa` finds fewer code/string
       // xrefs than the canonical `radare2 <file>` launcher does. Reopening
       // (`oo` / `oo+` in write mode) finalizes the mapping exactly as the
-      // launcher does, so the libr (full) flavor's analysis matches the
-      // pipe-only (spawned-radare2) reference 1:1.
+      // launcher does.
       (void)r_core_cmd0(core, opts.write ? "oo+" : "oo");
     }
 
@@ -349,21 +343,6 @@ std::unique_ptr<Backend> make_libr_backend_from_core(void* core_ptr) {
   return std::unique_ptr<Backend>(new LibrBackend(static_cast<RCore*>(core_ptr), /*owns=*/false));
 }
 
-#else  // R2XSQL_HAVE_LIBR == 0
 
-std::unique_ptr<Backend> open_libr(const LibrOpenOptions&, BackendError* err) {
-  if (err) err->message = "r2xsql was built without libr support (R2XSQL_HAVE_LIBR=0)";
-  return nullptr;
-}
-
-// Pipe-only: the data dir is resolved by the spawned radare2.exe, not by this
-// process, so there is nothing to probe — report it as available (N/A).
-LibrDataDirStatus libr_data_dir_status() { return LibrDataDirStatus{}; }
-
-// Pipe-only stub so a consumer that references the symbol still links; there is
-// no in-process core to wrap without libr.
-std::unique_ptr<Backend> make_libr_backend_from_core(void*) { return nullptr; }
-
-#endif
 
 }  // namespace r2xsql

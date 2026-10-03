@@ -140,9 +140,9 @@ default; a missing radare2 installation is a configure error. The plugin is in
 `build/bin/` (`build/bin/Release/` for the MSVC Release configuration).
 
 `R2XSQL_BUILD_PLUGIN=OFF` disables the plugin target and
-`R2XSQL_BUILD_EXAMPLES=OFF` disables examples. The static core library (which
-links radare2's `r_util`) and the r2pipe backend remain available to C++
-consumers. The project also supports being added as a CMake subdirectory.
+`R2XSQL_BUILD_EXAMPLES=OFF` disables examples. C++ consumers can embed the
+library with `open_libr` and the `r2xsql_libr` target. The project also supports
+being added as a CMake subdirectory.
 
 ### Building the in-r2 plugin the radare2 way (Makefile / meson)
 
@@ -277,19 +277,24 @@ clears those stale objects.
 
 ## Backends (internal detail)
 
-The library retains these backends for embedding and testing:
+The plugin uses the host RCore; embedding and tests use these backends:
 
 | Backend | Used by | Notes |
 |---|---|---|
-| `R2PipeBackend` | C++ consumers (`open_r2pipe`) | Spawns and manages `radare2 -q0` over stdio. |
 | `LibrBackend` | `core_r2xsql` and C++ consumers (`open_libr`) | Uses radare2 in-process; the plugin wraps its host core. |
 | `MockBackend`   | embedding/tests | Canned `{command → response}` map, records issued commands — no live radare2. |
 
 The in-process backend reads analysis, flags, symbols, binary metadata, IO maps,
 write caches, types, and runtime catalogs through native libr APIs. The command
-producers remain available to r2pipe and mock backends. Instruction/operand text
+producers remain available to the mock backend. Instruction/operand text
 rendering and byte/ROP searches still use radare2's command handlers to preserve
 their rendering, search configuration, and hit behavior.
+
+The internal r2pipe backend was for the removed standalone CLI and servers.
+It duplicated process management and command-based access without serving the
+native plugin, so it has been removed. External r2pipe clients can still send
+`sql` commands to radare2 with this plugin loaded; radare2 also provides HTTP
+access through `/cmd/`.
 
 ## Skills (Claude Code / Codex)
 
@@ -311,6 +316,6 @@ You may not maintain a divergent private fork, port, rebrand, clone, API-compati
 
 Permission requests: open a GitHub issue at [radareorg/r2xsql/issues](https://github.com/radareorg/r2xsql/issues).
 
-If r2xsql materially informs a distributed project, preserve the human origin: credit r2xsql and Elias Bachaalany visibly in your README/docs and in About/credits UI when applicable. The license includes an examples/FAQ section for common allowed and permission-required uses. Third-party dependencies (libxsql, radare2 (libr / r2pipe), and their transitive dependencies) remain under their own licenses.
+If r2xsql materially informs a distributed project, preserve the human origin: credit r2xsql and Elias Bachaalany visibly in your README/docs and in About/credits UI when applicable. The license includes an examples/FAQ section for common allowed and permission-required uses. Third-party dependencies (libxsql, radare2, and their transitive dependencies) remain under their own licenses.
 
 See the full [Human-Origin Source License v1.0](LICENSE).

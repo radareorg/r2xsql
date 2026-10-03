@@ -153,14 +153,6 @@ inline size_t quick_count(Backend* be, direct::Collection collection,
 // chosen simply because it needs no session state to produce.
 constexpr int64_t kTypeSystemAnchorAddr = 0;
 
-// Structural no-eval dispatch for a command with NO address anywhere in its
-// own grammar (unlike `dispatch_write`-shaped helpers elsewhere, which splice
-// `@ <addr>` onto the fallback command) -- currently only the type system's
-// `td`/`t-`. Tries `Backend::cmd_noeval` first, seeked to
-// `kTypeSystemAnchorAddr`; falls back to `fallback_command` VERBATIM (no
-// address suffix -- there is nothing to suffix) on every backend that reports
-// it unsupported (r2pipe, mock), so those backends keep issuing the exact
-// byte-for-byte command text this write path always issued.
 //
 // `noeval_command` and `fallback_command` may differ: a command whose
 // fallback needs r2's own quoting to survive `r_core_cmd0`'s command-chaining
@@ -190,13 +182,6 @@ inline std::string dispatch_type_write(Backend* be, const std::string& command) 
 // R_LOG_ERROR and is invisible to Backend::cmd()/cmd_noeval's captured
 // output, so an empty result is the only failure signal available here).
 //
-// `addr` matters even for a simple assemble: `cmd_pa` calls
-// `r_asm_set_pc(core->rasm, core->addr)` before assembling, so pc-relative
-// encodings (rip-relative loads, short branches) depend on which address is
-// current. `Backend::cmd_noeval`'s own temporary seek supplies this
-// correctly on the libr backend; the pipe/mock fallback uses the plain
-// `@ <addr>` seek suffix every other address-scoped write in this project
-// already relies on (tables_patches.cpp's `dispatch_write`, etc.).
 //
 // `asm_text` MUST already pass `json_utils::valid_asm_source_text` before
 // this is called (not re-checked here, so a caller can produce its own

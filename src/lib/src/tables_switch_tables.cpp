@@ -10,16 +10,6 @@
 // r2 DOES give a default target (`switch_op.def_val`). A `func_addr` equality filter
 // is pushed down to a single `afbj @ X`; an unfiltered scan walks `aflj`.
 //
-// A second, faster producer reads libr's analysis state through the C API
-// instead of running the command and parsing its JSON (see `direct.hpp`).
-// `table_addr` stays NULL on this leg too, by design: the C API DOES have the
-// jump table's own address (`RAnalSwitchOp::daddr`), but no r2 command
-// surfaces it, so populating it only here would make the two backends
-// disagree on this column for the same query — see `direct::BlockData`'s
-// comment. `blocks`/`cfg_edges`/`switch_tables`/`dominators`/
-// `post_dominators`/`loops` all share the identical `aflj` + N×`afbj` full
-// scan today; each is ported independently, reading the same
-// `direct::BlockData` shape `direct.hpp` defines once for all six.
 
 #include <memory>
 #include <utility>

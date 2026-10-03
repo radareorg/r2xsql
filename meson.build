@@ -45,12 +45,11 @@ xsql_dep = subproject('libxsql').get_variable('xsql_dep')
 
 # --- r2xsql core (all of src/lib/src is the full/libr plugin set) -------------
 # The 43 core table adapters plus backend_libr.cpp + direct_libr.cpp, which are
-# gated by R2XSQL_HAVE_LIBR (=1 here: this build is the in-process libr flavor).
+# including the native backend.
 r2xsql_srcs = files(
   'src/lib/src/backend_common.cpp',
   'src/lib/src/backend_libr.cpp',
   'src/lib/src/backend_mock.cpp',
-  'src/lib/src/backend_r2pipe.cpp',
   'src/lib/src/direct_libr.cpp',
   'src/lib/src/json_utils.cpp',
   'src/lib/src/session.cpp',
@@ -107,7 +106,6 @@ shared_module('core_r2xsql',
   [r2xsql_srcs, plugin_src],
   name_prefix: '',
   name_suffix: host_machine.system() == 'darwin' ? 'dylib' : [],
-  cpp_args: ['-DR2XSQL_HAVE_LIBR=1'],
   include_directories: r2xsql_inc,
   dependencies: [xsql_dep, r_core, threads],
   install: true,

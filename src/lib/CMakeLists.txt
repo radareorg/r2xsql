@@ -4,16 +4,14 @@
 # This file is licensed under the Human-Origin Source License v1.0.
 # See LICENSE.
 # libr2xsql — static core library exposing radare2 state as SQLite virtual
-# tables. It carries the mock + r2pipe backends and uses r_util (name checks
-# go through r_name_check); the libr backend lives in the r2xsql_libr OBJECT
-# library below, used by in-process consumers and the in-r2 plugin.
+# tables. The libr backend lives in the r2xsql_libr OBJECT library below;
+# the mock backend supports consumers with canned command responses.
 
 add_library(r2xsql STATIC
   src/version.cpp
   src/session.cpp
   src/backend_common.cpp
   src/backend_mock.cpp
-  src/backend_r2pipe.cpp
   src/json_utils.cpp
   src/tables_binary.cpp
   src/tables_bininfo.cpp
@@ -77,7 +75,6 @@ if(WIN32)
     WIN32_LEAN_AND_MEAN
     NOMINMAX
     _CRT_SECURE_NO_WARNINGS)
-  target_link_libraries(r2xsql PUBLIC ws2_32)
 endif()
 
 set_target_properties(r2xsql PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -91,7 +88,6 @@ add_library(r2xsql_libr OBJECT
   src/backend_libr.cpp
   src/direct_libr.cpp
 )
-target_compile_definitions(r2xsql_libr PRIVATE R2XSQL_HAVE_LIBR=1)
 if(Radare2_ROOT)
   # Fallback for r_sys_prefix()'s data-dir cliff: on Windows it resolves relative to the RUNNING
   # executable's own location, not radare2's install, so an embedding app
@@ -118,7 +114,7 @@ if(WIN32)
 
   # On Windows the r2 import libs reference DLLs; copy them next to the full
   # consumers (examples and core_r2xsql) so each loads radare2 without PATH
-  # juggling. Pipe-only consumers need none of these.
+  # juggling.
   if(Radare2_ROOT)
     file(GLOB _r2_dlls "${Radare2_ROOT}/bin/*.dll")
     if(_r2_dlls)
