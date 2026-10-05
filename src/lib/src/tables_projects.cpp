@@ -47,7 +47,14 @@ void register_projects_table(Session& s) {
         xsql::set_vtab_error("projects: refusing to delete an unsafe/empty project name");
         return false;
       }
-      if (std::string e = table_utils::command_error_text(be->cmd("'P- " + r.name)); !e.empty()) {
+      // With scr.interactive on, P- asks "Confirm project deletion? (Y/n)" on
+      // the console and the statement blocks on it (over =h, so does the
+      // request). The DELETE is the confirmation, so answer it here.
+      const std::string prior = table_utils::trim_ascii(be->cmd("e scr.interactive"));
+      be->cmd("e scr.interactive=false");
+      const std::string out = be->cmd("'P- " + r.name);
+      be->cmd("e scr.interactive=" + (prior.empty() ? std::string("false") : prior));
+      if (std::string e = table_utils::command_error_text(out); !e.empty()) {
         xsql::set_vtab_error("projects: DELETE failed (name=" + r.name + "): " + e);
         return false;
       }
