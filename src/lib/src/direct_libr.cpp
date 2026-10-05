@@ -661,29 +661,28 @@ class LibrApi : public Api {
     });
   }
 
-  // Mirrors the command path's `aflj` + `afxj @ <fn>` per function.
+  // Every reference radare2 knows -- the same store `axj` lists and the
+  // to/from pushdowns read -- with the owner resolved per row, as they do.
+  // Walking each function's own refs instead missed references whose source
+  // lies outside every analysed function (a call past a function's last
+  // block), so a full scan returned fewer rows than `WHERE to_addr = X`.
   void xrefs_scan(std::vector<XrefRow>& out) override {
     std::lock_guard lock(mu_);
     if (!core_ || !core_->anal) return;
-    for_each_rlist<RAnalFunction>(core_->anal->fcns, [&](RAnalFunction* fcn) {
-      RVecAnalRef* refs = r_anal_function_get_refs(fcn);
-      if (!refs) return;
-      RAnalRef* ref;
-      R_VEC_FOREACH (refs, ref) {
-        XrefRow r;
-        // Refs FROM a function: the varying source is `ref->at`, the target is
-        // `ref->addr`. This is the OPPOSITE of `r_anal_xrefs_get` below, where
-        // `at` comes back equal to the queried address on every row. Reading
-        // `at` for both yields the right row COUNT and entirely wrong data.
-        r.from_addr = static_cast<int64_t>(ref->at);
-        r.to_addr   = static_cast<int64_t>(ref->addr);
-        r.set_type(ref_type_string(ref->type));
-        r.from_func     = static_cast<int64_t>(fcn->addr);
-        r.has_from_func = true;
-        out.push_back(std::move(r));
-      }
-      RVecAnalRef_free(refs);
-    });
+    RVecAnalRef* refs = r_anal_refs_get(core_->anal, UT64_MAX);
+    if (!refs) return;
+    out.reserve(out.size() + RVecAnalRef_length(refs));
+    RAnalRef* ref;
+    R_VEC_FOREACH (refs, ref) {
+      XrefRow r;
+      // From the refs side: `at` is the source, `addr` the target.
+      r.from_addr = static_cast<int64_t>(ref->at);
+      r.to_addr   = static_cast<int64_t>(ref->addr);
+      r.set_type(ref_type_string(ref->type));
+      set_owner(r, core_, ref->at);
+      out.push_back(std::move(r));
+    }
+    RVecAnalRef_free(refs);
   }
 
   // Mirrors `axtj @ <to_addr>`.
