@@ -112,22 +112,25 @@ if(WIN32)
     NOMINMAX
     _CRT_SECURE_NO_WARNINGS)
 
-  # On Windows the r2 import libs reference DLLs; copy them next to the full
-  # consumers (examples and core_r2xsql) so each loads radare2 without PATH
-  # juggling.
+  # Put the host DLLs beside embedding executables for both generator types.
   if(Radare2_ROOT)
     file(GLOB _r2_dlls "${Radare2_ROOT}/bin/*.dll")
     if(_r2_dlls)
+      set(_r2_runtime_dest "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+      if(CMAKE_CONFIGURATION_TYPES)
+        string(APPEND _r2_runtime_dest "/$<CONFIG>")
+      endif()
       add_custom_target(r2xsql_copy_r2_dlls ALL
         COMMAND ${CMAKE_COMMAND} -E make_directory
-          "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/$<CONFIG>"
+          "${_r2_runtime_dest}"
         VERBATIM)
       foreach(_dll IN LISTS _r2_dlls)
         add_custom_command(TARGET r2xsql_copy_r2_dlls POST_BUILD
           COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${_dll}" "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/$<CONFIG>/"
+            "${_dll}" "${_r2_runtime_dest}/"
           VERBATIM)
       endforeach()
+      add_dependencies(r2xsql r2xsql_copy_r2_dlls)
     endif()
   endif()
 endif()
