@@ -3,310 +3,93 @@
 [![ci status](https://github.com/radareorg/r2xsql/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/radareorg/r2xsql/actions/workflows/build.yml?query=branch%3Amain)
 
 SQL interface for [radare2](https://github.com/radareorg/radare2), powered
-by [`libxsql`](https://github.com/0xeb/libxsql).
-
-```sql
-SELECT name, size FROM funcs WHERE name LIKE 'main%';
-SELECT content  FROM strings WHERE content LIKE '%password%';
-UPDATE comments SET text = 'reviewed' WHERE addr = 0x1234;
-```
-
-`r2xsql` exposes radare2's analysis state as live SQL virtual tables: every
-query reads native analysis data or the JSON form of the relevant r2 command
-(`aflj`, `izj`, `axtj`, …) from an in-process core or a spawned `radare2 -q0`
-pipe. Most live tables cache rows only for the duration of a query.
-
-## It's not read-only — and your work saves
-
-Load the plugin in radare2 and mutate analysis through ordinary SQL writes.
-Use radare2's `-w` option when writing binary bytes:
-
-```sql
-UPDATE funcs   SET name = 'parse_header' WHERE addr = 0x401000;   -- rename
-UPDATE funcs   SET prototype = 'int parse_header(char *buf)' WHERE name = 'parse_header';
-INSERT INTO comments(addr, text) VALUES (0x401044, 'bounds check missing');
-UPDATE locals  SET name = 'len', type = 'int' WHERE func_addr = 0x401000 AND name = 'var_8h';
-INSERT INTO types(name, kind) VALUES ('Header', 'struct');
-INSERT INTO bookmarks(addr, name) VALUES (0x401000, 'entry-of-interest');
-```
-
-Writable surfaces: **funcs** (rename, prototype), **comments**, **flags**,
-**locals** (rename + retype), **bookmarks**, **types** (create struct/union/
-enum), **patches** (byte edits), **io_maps**, **bytes**.
-
-**Persist it.** Save analysis with `Ps NAME` in radare2 and reopen it with
-`P NAME`. The plugin uses radare2's native project format; it does not
-automatically save on exit.
-
-Project save/open and full type declarations use native radare2 commands:
-`Ps NAME`, `P NAME`, and `"td struct Header { int magic; };"`. The former SQL
-functions `r2xsql_project_save`, `r2xsql_project_open`, and
-`r2xsql_type_define` are removed. SQL can still list/delete projects and
-create empty struct/union/enum types through the corresponding tables.
-
-## Requirements
-
-**You need radare2.** r2xsql does not bundle it and does not install it.
-
-```bash
-# any one of these
-r2pm -ci radare2                       # radare2's own package manager
-git clone https://github.com/radareorg/radare2 && radare2/sys/install.sh
-sudo apt install radare2               # distro package (may lag behind releases)
-brew install radare2                   # macOS
-```
-
-Build `core_r2xsql` against the same radare2 installation that will load it:
-the in-process plugin depends on radare2's ABI.
+by [libxsql](https://github.com/0xeb/libxsql). The `core_r2xsql` plugin exposes
+the host's live analysis as SQL tables, including writable annotations.
 
 ## Using the plugin
 
-The recommended way to install the plugin is with r2pm:
+Install radare2 first, then build and install the matching plugin with r2pm:
 
 ```sh
 r2pm -U
 r2pm -ci r2xsql
-```
-
-The installed plugin loads automatically when radare2 starts:
-
-```sh
 r2 -A ./target
 ```
 
-At the radare2 prompt:
+Installed plugins load automatically. Check `Lcj` and `sql?` at the r2 prompt.
+For an uninstalled build, use `r2 -i ./core_r2xsql.so -A ./target`; inside an
+existing session use `L ./core_r2xsql.so`. Substitute `.dylib` or `.dll` as
+appropriate. The plugin must match the host's radare2 ABI, including iaito's
+engine. See [installation details](docs/usage.md#installation).
 
 ```text
 sql SELECT name, size FROM funcs ORDER BY size DESC LIMIT 10
-pdf @ entry0
-q
+"sql UPDATE funcs SET name='parse_header' WHERE addr=0x401000"
+"sqlj SELECT name FROM funcs WHERE size > 100"
 ```
 
-For a one-shot query:
+Use `sql` for a native r2 table, `sql,:csv` for CSV, and `sqlj` for the JSON
+envelope and multiple statements. Wrap the whole command in double quotes
+to protect SQL operators from r2's parser. See [SQL access](docs/sql.md).
 
-```sh
-r2 -q -A \
-  -c '"sql SELECT name, size FROM funcs WHERE size > 100 LIMIT 5"' ./target
-```
+## Analyze by asking your agent
 
-Each `sql` command executes one statement. Quote the whole r2 command when SQL
-contains r2 operators such as `>` or `|`. Use repeated `-c` options, a radare2
-command script, or a persistent session for multiple statements.
+Install the [r2xsql skills](https://github.com/radareorg/radare2-skills/tree/main/r2xsql#install)
+alongside the plugin, then ask naturally:
 
-`sql` uses radare2's table renderer and honours `cfg.table.format` and
-`scr.utf8`. Add a table query immediately after the command, before the SQL:
+> Open `target.exe` headlessly and show me the ten largest functions.
+>
+> Rename that function based on its disassembly and pseudocode.
+>
+> Save the project beside the executable and keep it open.
+
+The agent uses native radare2 and curl, writes SQL for you, and reuses the
+session on follow-ups. Saving preserves a native r2 project; SQL results are
+computed from its analysis. See the [workflow guide](docs/usage.md).
+
+## Tandem mode
+
+Share an analysis session from r2's prompt, its visual/panels text interface,
+or [iaito](https://github.com/radareorg/iaito). Open and analyze the binary,
+check that r2xsql loaded, then enter these commands in the r2 prompt or
+iaito's **View > Console**:
 
 ```text
-sql,:csv SELECT name, size FROM funcs
-sql,size/gt/100,:quiet SELECT name, size FROM funcs
-sql,?
+e http.bind=127.0.0.1
+e http.sandbox=false
+e http.port=9090
+=h&
 ```
 
-Use `sql,:tsv` for tab-separated output. Native tables have no SQL NULL type;
-in particular, `sql,:json` omits NULL and empty-string cells.
+Choose a free port and wait for the server banner. Tell your agent:
+**Use r2xsql at http://127.0.0.1:9090 on the binary already open here.**
+The background server leaves the UI available. Take turns when changing
+analysis; use distinct ports for several sessions. See [tandem mode](docs/usage.md#tandem-mode).
 
-For a local build, `make user-install` also installs the plugin for automatic
-loading. To load a build without installing it, use either `-i` or `L`:
+## Fully headless
+
+With an installed plugin, start a fresh binary in a background native process:
 
 ```sh
-r2 -i /absolute/path/core_r2xsql.so -A ./target
-r2 -A -c 'L /absolute/path/core_r2xsql.so' ./target
-```
-
-Use the actual `.so`, `.dylib`, or `.dll` path. Inside an existing radare2
-session, use `L /absolute/path/core_r2xsql.so`.
-
-## Build
-
-Linux / macOS:
-
-```sh
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DRadare2_ROOT=/path/to/radare2/prefix
-cmake --build build
-```
-
-Windows (MSVC):
-
-```powershell
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
-  -DRadare2_ROOT=C:\path\to\radare2\prefix
-cmake --build build --config Release
-```
-
-`Radare2_ROOT` is a radare2 **install prefix** containing `include/libr/`
-and `lib/`. CMake requires radare2 and builds the libr backend and plugin by
-default; a missing radare2 installation is a configure error. The plugin is in
-`build/bin/` (`build/bin/Release/` for the MSVC Release configuration).
-
-`R2XSQL_BUILD_PLUGIN=OFF` disables the plugin target and
-`R2XSQL_BUILD_EXAMPLES=OFF` disables examples. C++ consumers can embed the
-library with `open_libr` and the `r2xsql_libr` target. The project also supports
-being added as a CMake subdirectory.
-
-### Building the in-r2 plugin the radare2 way (Makefile / meson)
-
-CMake above builds the library, examples, and plugin, including on Windows. If you
-only want the in-r2 plugin — the `core_r2xsql` module that adds the `sql`
-command inside radare2 — there is also a radare2-native build that needs no
-CMake, matching how radare2 plugins are usually built (plugin paths from
-`r2 -H`, radare2 from `pkg-config r_core`):
-
-```bash
-make                 # -> build-make/core_r2xsql.$(r2 -H R2_LIBEXT)
-make user-install    # install into the per-user plugin dir (no root)
-make install         # install system-wide (R2_LIBR_PLUGINS)
-make user-uninstall  # remove the per-user plugin without building
-make uninstall       # remove the system-wide plugin without building
-make test            # load it in r2 and run one SQL query
-# only `radare2` (not `r2`) on PATH?  ->  make R2=radare2
-```
-
-`make install` and `make uninstall` accept `PLUGDIR` and `DESTDIR` for a
-custom plugin directory or staged install. User targets use `R2_USER_PLUGINS`;
-override it on the make command line when needed.
-
-Or with meson (what radare2 itself uses):
-
-```bash
-meson setup build-meson
-meson compile -C build-meson
-meson install -C build-meson                 # into R2_LIBR_PLUGINS
-meson setup build-meson -Dr2_user_plugins=true   # ... or the per-user dir
-```
-
-Both build the same plugin: the `sql` command. Both
-consume [`libxsql`](https://github.com/0xeb/libxsql): the Makefile uses a
-sibling `../libxsql` checkout (else clones it), and meson pulls it as a
-subproject. All three builds pin the same libxsql release tag (`v1.0.21`).
-
-Release assets are named `r2xsql-<radare2-version>-<R2PM_TRIPLET>.zip`, for
-example `r2xsql-6.2.2-linux-x86-64.zip`. Each contains the plugin in `plugins/`.
-With a recent r2pm supporting binary installs, use `r2pm -U` followed by
-`r2pm -bi r2xsql`; uninstall with `r2pm -u r2xsql`. Only matching radare2
-versions and targets are installed. To install manually, copy the plugin to
-the directory printed by `radare2 -NN -H R2_USER_PLUGINS`.
-
-### JSON results
-
-Use `sqlj` for programmatic queries and scripts:
-
-```text
-"sqlj SELECT NULL AS missing, '' AS empty; SELECT count(*) AS n FROM funcs"
-```
-
-It returns libxsql's JSON envelope with per-statement columns, rows, errors,
-and timings. SQL NULL is JSON `null`, distinct from the empty string. Quoting
-the entire r2 command also preserves statement separators and SQL operators.
-The same command works through r2pipe and radare2's HTTP `/cmd/` endpoint.
-
-## HTTP access through radare2
-
-With the plugin installed, start r2's web server in a persistent session:
-
-```sh
-r2 -N -q \
-  -e http.bind=127.0.0.1 -e http.port=9090 -c aa -c '=h' ./target
-```
-
-Send a quoted SQL command through r2's `POST /cmd/` endpoint:
-
-```sh
-curl --data-binary '"sql SELECT name, size FROM funcs WHERE size > 100 LIMIT 5"' \
+r2 -N -q -A -e scr.html=false -e http.bind=127.0.0.1 \
+  -e http.sandbox=false -e http.port=9090 -c '=h' ./target \
+  >r2.stdout.log 2>r2.stderr.log &
+curl -d '"sqlj SELECT name,size FROM funcs ORDER BY size DESC LIMIT 10"' \
   http://127.0.0.1:9090/cmd/
 ```
 
-`GET /cmd/<encoded-command>` also works for short queries:
+Wait for readiness before querying. r2's HTTP server carries SQL and native
+commands; r2xsql has no separate server. Bind to loopback: this endpoint can
+change analysis and write files. Reopen a saved project with `r2 -p PROJECT`
+without `-A` or a separate binary argument. The [workflow guide](docs/usage.md)
+covers Windows launches, saves, reopening, shutdown and HTTP version differences.
 
-```python
-from urllib.parse import quote
-from urllib.request import urlopen
+## Documentation
 
-sql = "SELECT name, size FROM funcs WHERE size > 100 ORDER BY size DESC LIMIT 5"
-command = '"sql ' + sql.replace('"', '\\"') + '"'
-with urlopen("http://127.0.0.1:9090/cmd/" + quote(command, safe="")) as response:
-    print(response.read().decode(), end="")
-```
-
-Quote the **whole r2 command**, escape any SQL double quotes, then URL-encode
-it for GET; POST sends the quoted command as the raw body. URL encoding alone
-does not protect SQL operators such as `>` and `|` from r2's command parser.
-Prefer POST for longer SQL to avoid r2's request-line length limit.
-`sql` executes one statement; `sqlj` executes a script and returns a JSON
-envelope. The session persists between requests, including analysis and
-comment changes.
-
-Responses are native tables for `sql`, with no added row-count footer, or JSON
-for `sqlj`. SQL errors can arrive with HTTP status 200: check `ERROR: ...` in
-table output or `success` and per-statement errors in the JSON envelope. The old
-`sql.http*` and `/query` interface is removed;
-configure the native server with r2's `http.*` settings instead.
-
-## Tests
-
-Run the regression suite with radare2, `r2r`, a C compiler and Python 3 on
-`PATH` (Python's standard library is used only for the HTTP transport test):
-
-```sh
-make test
-```
-
-This builds the plugin and runs the r2r database in `tests/db`. Each test loads
-the exact build explicitly, ignoring installed user plugins, and checks its
-output; SQL exceptions fail the suite even when radare2 exits successfully.
-The fixture is compiled locally, with no downloaded test binaries or pytest.
-
-To test an existing CMake/Meson build, or select matching radare2 tools:
-
-```sh
-make -C tests R2XSQL_PLUGIN=/absolute/path/core_r2xsql.so R2=/path/to/r2 R2R=/path/to/r2r
-# Only command tests (no Python needed):
-make -C tests TESTS=db/cmd
-```
-
-`R2R_ARGS` accepts r2r options (default `-L`); for example, `R2R_ARGS=-i` enables
-interactive failure review. One small standard-library helper retains real
-HTTP GET/POST coverage, including server startup and shutdown; r2r checks its
-result alongside the command tests.
-
-The Make build tracks header dependencies. This prevents stale adapters after
-C++ interface changes, which could previously cause `std::bad_alloc` during
-`make test`. After updating this Makefile, existing objects are rebuilt once
-to establish dependency files. For older checkouts, `make clean && make test`
-clears those stale objects.
-
-## Backends (internal detail)
-
-The plugin uses the host RCore; embedding and tests use these backends:
-
-| Backend | Used by | Notes |
-|---|---|---|
-| `LibrBackend` | `core_r2xsql` and C++ consumers (`open_libr`) | Uses radare2 in-process; the plugin wraps its host core. |
-| `MockBackend`   | embedding/tests | Canned `{command → response}` map, records issued commands — no live radare2. |
-
-The in-process backend reads analysis, flags, symbols, binary metadata, IO maps,
-write caches, types, and runtime catalogs through native libr APIs. The command
-fallbacks support mock responses where needed. Instruction/operand text
-rendering and byte/ROP searches still use radare2's command handlers to preserve
-their rendering, search configuration, and hit behavior.
-
-The internal r2pipe backend was for the removed standalone CLI and servers.
-It duplicated process management and command-based access without serving the
-native plugin, so it has been removed. External r2pipe clients can still send
-`sql` commands to radare2 with this plugin loaded; radare2 also provides HTTP
-access through `/cmd/`.
-
-## Skills (Claude Code / Codex)
-
-Agent skills teach Claude Code and Codex to drive `r2xsql`: query and annotate
-radare2 analysis through SQL, pick the right backend. They ship in the radare2 community skills catalog,
-**[`radare2-skills`](https://github.com/radareorg/radare2-skills)**, as the
-`r2xsql/` category alongside `dev/` and `radius2/`. Install a category
-with its `make install` (or `python install.py install` for `r2xsql/`, which copies
-rather than symlinks so it needs no elevated rights on Windows).
-
-Start with the `connect` skill; its `references/schema-catalog.md` is the
-canonical reference for the SQL surface.
+- [User workflows and HTTP access](docs/usage.md)
+- [SQL queries, formats and annotations](docs/sql.md)
+- [Building, packaging and testing](docs/development.md)
+- [Agent skills and schema reference](https://github.com/radareorg/radare2-skills/tree/main/r2xsql)
 
 ## License and Terms of Use
 
