@@ -40,6 +40,23 @@ ifeq ($(wildcard $(LIBXSQL_DIR)/CMakeLists.txt),)
   LIBXSQL_DIR:=$(BUILD)/libxsql
 endif
 
+# $(1) is the included makefile stamp, refreshed after a managed checkout.
+define check_libxsql
+@mkdir -p $(dir $(1))
+@current=$$(git -C "$(LIBXSQL_DIR)" rev-parse --verify HEAD 2>/dev/null || echo unknown); \
+expected=$$(git -C "$(LIBXSQL_DIR)" rev-parse --verify "$(LIBXSQL_REF)^{commit}" 2>/dev/null); \
+if [ "$$current" != "$$expected" ]; then \
+	if [ "$(LIBXSQL_DIR)" = "$(BUILD)/libxsql" ]; then \
+		git -C "$(LIBXSQL_DIR)" fetch origin tag "$(LIBXSQL_REF)" && \
+		git -C "$(LIBXSQL_DIR)" checkout "$(LIBXSQL_REF)" && touch $(1) || exit $$?; \
+	elif [ "$$current" != unknown ]; then \
+		echo "ERROR: libxsql at $$current, expected $(LIBXSQL_REF). Update $(LIBXSQL_DIR) manually." >&2; \
+		exit 1; \
+	fi; \
+fi
+@test -f $(1) || touch $(1)
+endef
+
 # --- radare2 (in-process libr backend) ----------------------------------------
 R2_CFLAGS=$(shell pkg-config --cflags r_core)
 R2_LDFLAGS=$(shell pkg-config --libs r_core)
@@ -84,7 +101,7 @@ all: $(PLUGIN)
 
 # Removing files must not fetch or rebuild dependencies via included makefiles.
 ifneq ($(filter-out clean mrproper uninstall user-uninstall,$(or $(MAKECMDGOALS),all)),)
--include $(BUILD)/libxsql.mk
+include $(BUILD)/libxsql.mk
 -include $(OBJS:.o=.d)
 endif
 
@@ -95,9 +112,10 @@ $(LIBXSQL_DIR)/CMakeLists.txt:
 	@echo "libxsql not found at ../libxsql -- cloning $(LIBXSQL_URL)"
 	git clone --depth 1 --branch $(LIBXSQL_REF) $(LIBXSQL_URL) $(LIBXSQL_DIR)
 
-$(BUILD)/libxsql.mk: $(LIBXSQL_DIR)/CMakeLists.txt
-	@mkdir -p $(dir $@)
-	@touch $@
+# Check before reading sources; a checkout restarts make with the new source list.
+.PHONY: libxsql-check
+$(BUILD)/libxsql.mk: $(LIBXSQL_DIR)/CMakeLists.txt libxsql-check
+	$(call check_libxsql,$@)
 
 # Rebuild legacy objects without .d files when this Makefile is updated.
 $(BUILD)/obj/sqlite/sqlite3.o: $(LIBXSQL_DIR)/external/sqlite/sqlite3.c Makefile | $(LIBXSQL_DIR)/CMakeLists.txt
