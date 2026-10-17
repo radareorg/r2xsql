@@ -2,7 +2,7 @@
 # Stage the same plugins/ layout on every platform for r2pm -bi.
 set -euo pipefail
 
-# The pinned radare2 predates r2pm -H R2PM_TRIPLET.
+# Derive the target from the runner, independent of the build host's r2pm.
 case "${RUNNER_OS}-${RUNNER_ARCH}" in
   Linux-X64) R2PM_TRIPLET=linux-x86-64; ext=so ;;
   Windows-X64) R2PM_TRIPLET=windows-x86-64; ext=dll ;;
@@ -27,7 +27,8 @@ cat > dist/plugin/README.txt <<EOF
 r2xsql — radare2 core plugin
 
 Built against radare2 ${R2_REF} for ${R2PM_TRIPLET}.
-Install with a matching radare2 version and a recent r2pm:
+Install with a matching radare2 version and an r2pm supporting
+R2PM_VERSION_MAP (available in radare2 git; planned for 6.2.6):
 
   r2pm -U
   r2pm -bi r2xsql
@@ -48,7 +49,7 @@ with double quotes to preserve SQL operators and statement separators.
 Analysis is explicit: run aaa or start radare2 with -A.
 
 The plugin also works through radare2's own HTTP server:
-  radare2 -e http.bind=127.0.0.1 -e http.port=9090 -c aaa -c '=h' <file>
+  radare2 -e http.bind=127.0.0.1 -e http.sandbox=false -e http.port=9090 -c aaa -c '=h' <file>
   curl --data-binary '"sqlj SELECT name FROM funcs LIMIT 5"' http://127.0.0.1:9090/cmd/
 
 Read the command output for errors even when HTTP returns status 200.
