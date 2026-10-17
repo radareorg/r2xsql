@@ -64,12 +64,34 @@ consume [`libxsql`](https://github.com/0xeb/libxsql): the Makefile uses a
 sibling `../libxsql` checkout (else clones it), and meson pulls it as a
 subproject. All three builds pin the same libxsql release tag (`v1.0.21`).
 
-When published, binary release assets are named `r2xsql-<radare2-version>-<R2PM_TRIPLET>.zip`, for
-example `r2xsql-6.2.4-linux-x86-64.zip`. Each contains the plugin in `plugins/`.
-With a recent r2pm supporting binary installs, use `r2pm -U` followed by
-`r2pm -bi r2xsql`; uninstall with `r2pm -u r2xsql`. Only matching radare2
-versions and targets are installed. To install manually, copy the plugin to
-the directory printed by `radare2 -NN -H R2_USER_PLUGINS`.
+## Binary releases
+
+The plugin release version and radare2 version are separate. A plugin release
+such as `v0.0.1` contains assets named
+`r2xsql-<radare2-version>-<R2PM_TRIPLET>.zip`, for example
+`r2xsql-6.2.4-linux-x86-64.zip`. Each archive contains the plugin in `plugins/`.
+The current CI targets Linux x64, Windows x64 and macOS ARM64 against radare2
+6.2.4. A different engine ABI needs a matching build, including iaito's engine.
+
+Pushing a `v*` tag runs the build workflow and, after all platform builds
+succeed, creates a GitHub Release with the ZIPs attached. Branch builds and
+manual workflow runs upload CI artifacts without publishing a release.
+Keep `R2_REF` in `.github/workflows/build.yml` and the compatibility table in
+[`radare2-pm/db/r2xsql`](https://github.com/radareorg/radare2-pm/blob/master/db/r2xsql)
+aligned. The recipe uses `R2PM_VERSION_MAP` to map the installed radare2 version
+(`R2V`) to the plugin release tag (`R2PM_VERSION`). It downloads from that exact
+release, retaining `R2V` in the asset name to select the compatible build.
+Add a mapping only when that release supplies a build for the engine version;
+a new r2pm version alone does not make an older plugin ABI compatible.
+
+Binary installation requires r2pm with `R2PM_VERSION_MAP` support, available in
+radare2 git and planned for radare2 6.2.6. Radare2 6.2.4 introduced binary
+installation, but its r2pm lacks this mapping facility. The mapped release
+and matching target asset must also be published; a CI artifact alone is not
+enough. With a suitable r2pm, use `r2pm -U` then `r2pm -bi r2xsql`; uninstall
+with `r2pm -u r2xsql`. Unsupported versions or targets fail instead of falling
+back to a source build. To install manually, copy the matching plugin to the
+directory printed by `radare2 -NN -H R2_USER_PLUGINS`.
 
 ## Tests
 

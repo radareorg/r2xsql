@@ -18,7 +18,8 @@ does the same for a local build. Manual installation uses the directory
 reported by `r2 -NN -H R2_USER_PLUGINS`. Restart a host after installation.
 The plugin's radare2 ABI must match the engine loading it; iaito can use a
 different engine from the standalone r2 on PATH. Binary installation with
-`r2pm -bi r2xsql` requires an available asset matching the host and platform.
+`r2pm -bi r2xsql` requires an available asset matching the host and platform,
+plus r2pm with `R2PM_VERSION_MAP` support (radare2 git; planned for 6.2.6).
 See [building and packaging](development.md).
 
 For a build that is not installed:
